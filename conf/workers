@@ -15,13 +15,9 @@
 # limitations under the License.
 #
 
-# Default system properties included when running spark-submit.
-# This is useful for setting default environmental settings.
-
-# Example:
-spark.master                     spark://master:7077
-# spark.eventLog.enabled           true
-# spark.eventLog.dir               hdfs://csce-nguyen-s1:8021/sparkEventLog
-spark.serializer                 org.apache.spark.serializer.KryoSerializer
-# spark.driver.memory              5g
-# spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey=value -Dnumbers="one two three"
+# A Spark Worker will be started on each of the machines listed below.
+csce-nguyen-s2.engr.tamu.edu
+csce-nguyen-s3.engr.tamu.edu
+#csce-nguyen-s4.engr.tamu.edu
+#csce-nguyen-s5.engr.tamu.edu
+#csce-nguyen-s6.engr.tamu.edu
