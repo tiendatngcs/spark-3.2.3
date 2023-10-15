@@ -364,6 +364,12 @@ package object config {
     .doubleConf
     .createWithDefault(0.6)
 
+  private[spark] val CACHE_MODE = ConfigBuilder("spark.memory.cacheMode")
+    .doc("0 : vanilla caching | 1 : no cache | 2 : cache all")
+    .version("Dat version")
+    .intConf
+    .createWithDefault(0)
+
   private[spark] val STORAGE_UNROLL_MEMORY_THRESHOLD =
     ConfigBuilder("spark.storage.unrollMemoryThreshold")
       .doc("Initial memory to request before unrolling any block")

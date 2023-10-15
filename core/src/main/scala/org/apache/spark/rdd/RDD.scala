@@ -171,9 +171,13 @@ abstract class RDD[T: ClassTag](
    */
   private def persist(newLevel: StorageLevel, allowOverride: Boolean): this.type = {
     // TODO: Handle changes of StorageLevel
-    if (storageLevel != StorageLevel.NONE && newLevel != storageLevel && !allowOverride) {
+    if (storageLevel != StorageLevel.NONE
+        && newLevel != storageLevel
+        && !allowOverride
+        && conf.get(CACHE_MODE) != 2) {
       throw new UnsupportedOperationException(
-        "Cannot change storage level of an RDD after it was already assigned a level")
+        "Cannot change storage level of an RDD after it was already assigned a level %d %d %d"
+        .format(storageLevel != StorageLevel.NONE, newLevel != storageLevel, !allowOverride))
     }
     // If this is the first time this RDD is marked for persisting, register it
     // with the SparkContext for cleanups and accounting. Do this only once.
@@ -204,7 +208,16 @@ abstract class RDD[T: ClassTag](
   /**
    * Persist this RDD with the default storage level (`MEMORY_ONLY`).
    */
-  def persist(): this.type = persist(StorageLevel.MEMORY_ONLY)
+  // def persist(): this.type = persist(StorageLevel.MEMORY_ONLY)
+  def persist(): this.type = {
+    if (conf.get(CACHE_MODE) == 0 || conf.get(CACHE_MODE) == 2) {
+      // vanilla or cache all
+      persist(StorageLevel.MEMORY_ONLY)
+    } else {
+      // no cache
+      this
+    }
+  }
 
   /**
    * Persist this RDD with the default storage level (`MEMORY_ONLY`).
@@ -226,6 +239,18 @@ abstract class RDD[T: ClassTag](
 
   /** Get the RDD's current storage level, or StorageLevel.NONE if none is set. */
   def getStorageLevel: StorageLevel = storageLevel
+
+  // Dat cache all rdds
+  if (conf.get(CACHE_MODE) == 2) {
+    if (getStorageLevel != StorageLevel.NONE
+        && LocalRDDCheckpointData.transformStorageLevel(
+          StorageLevel.MEMORY_ONLY) != getStorageLevel
+        && !isLocallyCheckpointed) {
+      // do nothing
+    } else {
+      cache();
+    }
+  }
 
   /**
    * Lock for all mutable state of this RDD (persistence, partitions, dependencies, etc.).  We do
