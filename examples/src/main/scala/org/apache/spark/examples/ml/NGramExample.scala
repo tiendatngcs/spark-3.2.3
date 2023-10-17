@@ -27,7 +27,7 @@ object NGramExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("NGramExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

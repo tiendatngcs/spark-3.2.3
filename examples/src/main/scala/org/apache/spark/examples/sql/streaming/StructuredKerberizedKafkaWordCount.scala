@@ -100,7 +100,7 @@ object StructuredKerberizedKafkaWordCount {
 
     val spark = SparkSession
       .builder
-      .appName("StructuredKerberizedKafkaWordCount")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     import spark.implicits._

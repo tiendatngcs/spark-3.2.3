@@ -30,7 +30,7 @@ object RandomForestRegressorExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("RandomForestRegressorExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

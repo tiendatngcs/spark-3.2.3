@@ -28,7 +28,7 @@ object PolynomialExpansionExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("PolynomialExpansionExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

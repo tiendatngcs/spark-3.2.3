@@ -28,7 +28,7 @@ object NaiveBayesExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("NaiveBayesExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

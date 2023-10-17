@@ -39,7 +39,7 @@ object DeveloperApiExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("DeveloperApiExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // Prepare training data.

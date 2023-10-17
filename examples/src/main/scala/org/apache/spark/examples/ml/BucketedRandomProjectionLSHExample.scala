@@ -35,7 +35,7 @@ object BucketedRandomProjectionLSHExample {
     // Creates a SparkSession
     val spark = SparkSession
       .builder
-      .appName("BucketedRandomProjectionLSHExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

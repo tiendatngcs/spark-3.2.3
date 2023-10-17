@@ -57,7 +57,7 @@ object SparkPageRankNoCache {
 
     val spark = SparkSession
       .builder
-      .appName("SparkPageRankNoCache")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val iters = if (args.length > 1) args(1).toInt else 10

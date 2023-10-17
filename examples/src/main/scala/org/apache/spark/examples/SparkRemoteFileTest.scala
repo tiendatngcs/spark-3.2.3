@@ -32,7 +32,7 @@ object SparkRemoteFileTest {
     }
     val spark = SparkSession
       .builder()
-      .appName("SparkRemoteFileTest")
+      .appName(args(args.length-1))
       .getOrCreate()
     val sc = spark.sparkContext
     val rdd = sc.parallelize(Seq(1)).map(_ => {

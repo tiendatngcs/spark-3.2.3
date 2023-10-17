@@ -28,7 +28,7 @@ object LogisticRegressionWithElasticNetExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("LogisticRegressionWithElasticNetExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

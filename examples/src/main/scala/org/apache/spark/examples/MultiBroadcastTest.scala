@@ -30,7 +30,7 @@ object MultiBroadcastTest {
 
     val spark = SparkSession
       .builder
-      .appName("Multi-Broadcast Test")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val slices = if (args.length > 0) args(0).toInt else 2

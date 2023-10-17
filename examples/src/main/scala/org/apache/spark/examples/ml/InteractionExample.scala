@@ -28,7 +28,7 @@ object InteractionExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("InteractionExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

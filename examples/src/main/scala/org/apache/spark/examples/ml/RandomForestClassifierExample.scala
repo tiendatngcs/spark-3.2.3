@@ -30,7 +30,7 @@ object RandomForestClassifierExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("RandomForestClassifierExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

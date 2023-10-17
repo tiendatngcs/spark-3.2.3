@@ -30,7 +30,7 @@ object SparkSessionExtensionsTest {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder()
-      .appName("SparkSessionExtensionsTest")
+      .appName(args(args.length-1))
       .config("spark.sql.extensions", classOf[SessionExtensionsWithoutLoader].getName)
       .getOrCreate()
     spark.sql("SELECT age_one('2018-11-17'), age_two('2018-11-17')").show()

@@ -29,7 +29,7 @@ object GroupByTest {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("GroupBy Test")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val numMappers = if (args.length > 0) args(0).toInt else 2

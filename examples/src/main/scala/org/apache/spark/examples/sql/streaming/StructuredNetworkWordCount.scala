@@ -45,7 +45,7 @@ object StructuredNetworkWordCount {
 
     val spark = SparkSession
       .builder
-      .appName("StructuredNetworkWordCount")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     import spark.implicits._

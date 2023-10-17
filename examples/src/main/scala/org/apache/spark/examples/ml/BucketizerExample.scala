@@ -33,7 +33,7 @@ object BucketizerExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("BucketizerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

@@ -29,7 +29,7 @@ object LogisticRegressionSummaryExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("LogisticRegressionSummaryExample")
+      .appName(args(args.length-1))
       .getOrCreate()
     import spark.implicits._
 

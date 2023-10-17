@@ -110,7 +110,7 @@ object SparkALS {
 
     val spark = SparkSession
       .builder
-      .appName("SparkALS")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val sc = spark.sparkContext

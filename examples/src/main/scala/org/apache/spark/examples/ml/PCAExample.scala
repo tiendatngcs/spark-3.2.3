@@ -28,7 +28,7 @@ object PCAExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("PCAExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

@@ -68,7 +68,7 @@ object SparkHdfsLR {
 
     val spark = SparkSession
       .builder
-      .appName("SparkHdfsLR")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val inputPath = args(0)

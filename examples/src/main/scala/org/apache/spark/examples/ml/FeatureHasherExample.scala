@@ -26,7 +26,7 @@ object FeatureHasherExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("FeatureHasherExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

@@ -27,7 +27,7 @@ object StringIndexerExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("StringIndexerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

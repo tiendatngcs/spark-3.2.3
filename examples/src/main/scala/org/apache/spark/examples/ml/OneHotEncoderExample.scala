@@ -27,7 +27,7 @@ object OneHotEncoderExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("OneHotEncoderExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // Note: categorical features are usually first encoded with StringIndexer

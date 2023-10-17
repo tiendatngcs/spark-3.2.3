@@ -44,7 +44,7 @@ object SparkTC {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("SparkTC")
+      .appName(args(args.length-1))
       .getOrCreate()
     val slices = if (args.length > 0) args(0).toInt else 2
     var tc = spark.sparkContext.parallelize(generateGraph, slices).cache()

@@ -31,7 +31,7 @@ object ImputerExample {
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder
-      .appName("ImputerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

@@ -35,7 +35,7 @@ object MinHashLSHExample {
     // Creates a SparkSession
     val spark = SparkSession
       .builder
-      .appName("MinHashLSHExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

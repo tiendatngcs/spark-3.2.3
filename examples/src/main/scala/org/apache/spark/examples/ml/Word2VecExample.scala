@@ -29,7 +29,7 @@ object Word2VecExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("Word2Vec example")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

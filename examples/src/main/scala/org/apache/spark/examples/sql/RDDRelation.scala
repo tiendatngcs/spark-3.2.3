@@ -32,7 +32,7 @@ object RDDRelation {
     // $example on:init_session$
     val spark = SparkSession
       .builder
-      .appName("Spark Examples")
+      .appName(args(args.length-1))
       .config("spark.some.config.option", "some-value")
       .getOrCreate()
 

@@ -36,7 +36,7 @@ import org.apache.spark.streaming.receiver.Receiver
  * and then run the example
  *    `$ bin/run-example org.apache.spark.examples.streaming.CustomReceiver localhost 9999`
  */
-object CustomReceiver {
+object CustomCustomReceiver {
   def main(args: Array[String]): Unit = {
     if (args.length < 2) {
       System.err.println("Usage: CustomReceiver <hostname> <port>")

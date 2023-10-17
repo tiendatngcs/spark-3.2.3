@@ -27,7 +27,7 @@ object RobustScalerExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("RobustScalerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

@@ -38,7 +38,7 @@ object BisectingKMeansExample {
     // Creates a SparkSession
     val spark = SparkSession
       .builder
-      .appName("BisectingKMeansExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$

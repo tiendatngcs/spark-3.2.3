@@ -31,7 +31,7 @@ object DecisionTreeClassificationExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("DecisionTreeClassificationExample")
+      .appName(args(args.length-1))
       .getOrCreate()
     // $example on$
     // Load the data stored in LIBSVM format as a DataFrame.

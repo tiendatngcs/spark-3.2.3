@@ -65,7 +65,7 @@ object SparkLR {
 
     val spark = SparkSession
       .builder
-      .appName("SparkLR")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val numSlices = if (args.length > 0) args(0).toInt else 2

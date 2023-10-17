@@ -48,7 +48,7 @@ object StructuredSessionization {
 
     val spark = SparkSession
       .builder
-      .appName("StructuredSessionization")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     import spark.implicits._

@@ -27,7 +27,7 @@ object SQLDataSourceExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder()
-      .appName("Spark SQL data sources example")
+      .appName(args(args.length-1))
       .config("spark.some.config.option", "some-value")
       .getOrCreate()
 

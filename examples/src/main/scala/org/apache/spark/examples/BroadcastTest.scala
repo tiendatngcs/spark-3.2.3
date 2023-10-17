@@ -30,7 +30,7 @@ object BroadcastTest {
 
     val spark = SparkSession
       .builder()
-      .appName("Broadcast Test")
+      .appName(args(args.length-1))
       .config("spark.broadcast.blockSize", blockSize)
       .getOrCreate()
 

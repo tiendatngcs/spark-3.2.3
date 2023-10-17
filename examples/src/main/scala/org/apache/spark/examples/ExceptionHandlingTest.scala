@@ -23,7 +23,7 @@ object ExceptionHandlingTest {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("ExceptionHandlingTest")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     spark.sparkContext.parallelize(0 until spark.sparkContext.defaultParallelism).foreach { i =>

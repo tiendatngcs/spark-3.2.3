@@ -68,7 +68,7 @@ object SparkKMeans {
 
     val spark = SparkSession
       .builder
-      .appName("SparkKMeans")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     val lines = spark.read.textFile(args(0)).rdd

@@ -27,7 +27,7 @@ object SimpleTypedAggregator {
     val spark = SparkSession
       .builder
       .master("local")
-      .appName("common typed aggregator implementations")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     import spark.implicits._

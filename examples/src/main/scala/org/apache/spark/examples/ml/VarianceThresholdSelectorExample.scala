@@ -35,7 +35,7 @@ object VarianceThresholdSelectorExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("VarianceThresholdSelectorExample")
+      .appName(args(args.length-1))
       .getOrCreate()
     import spark.implicits._
 

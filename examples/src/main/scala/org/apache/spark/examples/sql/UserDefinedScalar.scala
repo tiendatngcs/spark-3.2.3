@@ -27,7 +27,7 @@ object UserDefinedScalar {
     // $example on:udf_scalar$
     val spark = SparkSession
       .builder()
-      .appName("Spark SQL UDF scalar example")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // Define and register a zero-argument non-deterministic UDF

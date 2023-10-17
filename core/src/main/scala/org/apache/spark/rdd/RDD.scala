@@ -189,6 +189,18 @@ abstract class RDD[T: ClassTag](
     this
   }
 
+  private[spark] def persist_internal(newLevel: StorageLevel): this.type = {
+    if (isLocallyCheckpointed) {
+      // This means the user previously called localCheckpoint(), which should have already
+      // marked this RDD for persisting. Here we should override the old storage level with
+      // one that is explicitly requested by the user (after adapting it to use disk).
+      persist(LocalRDDCheckpointData.transformStorageLevel(newLevel), allowOverride = true)
+    } else {
+      persist(newLevel, allowOverride = false)
+    }
+    this
+  }
+
   /**
    * Set this RDD's storage level to persist its values across operations after the first time
    * it is computed. This can only be used to assign a new storage level if the RDD does not

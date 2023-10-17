@@ -28,7 +28,7 @@ object SummarizerExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("SummarizerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     import spark.implicits._

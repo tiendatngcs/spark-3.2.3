@@ -26,7 +26,7 @@ object QuantileDiscretizerExample {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder
-      .appName("QuantileDiscretizerExample")
+      .appName(args(args.length-1))
       .getOrCreate()
 
     // $example on$
