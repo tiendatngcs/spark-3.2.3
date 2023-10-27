@@ -254,14 +254,15 @@ abstract class RDD[T: ClassTag](
 
   // Dat cache all rdds
   if (conf.get(CACHE_MODE) == 2) {
-    if (getStorageLevel != StorageLevel.NONE
-        && LocalRDDCheckpointData.transformStorageLevel(
-          StorageLevel.MEMORY_ONLY) != getStorageLevel
-        && !isLocallyCheckpointed) {
-      // do nothing
-    } else {
-      cache();
-    }
+    // if (getStorageLevel != StorageLevel.NONE
+    //     && LocalRDDCheckpointData.transformStorageLevel(
+    //       StorageLevel.MEMORY_ONLY) != getStorageLevel
+    //     && !isLocallyCheckpointed) {
+    //   // do nothing
+    // } else {
+    //   cache();
+    // }
+    cache()
   }
 
   /**

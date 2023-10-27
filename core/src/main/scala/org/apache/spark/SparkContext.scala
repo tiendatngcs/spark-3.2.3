@@ -298,6 +298,11 @@ class SparkContext(config: SparkConf) extends Logging {
     map.asScala
   }
 
+  private[spark] val rddReuseCount = {
+    val map: ConcurrentMap[RDD[_], Int] = new MapMaker().makeMap[RDD[_], Int]()
+    map.asScala
+  }
+
   // Keep Track of RDDs Reference Distance
   // key = rdd, value = ref distance
   private[spark] var refDistance = new HashMap[Int, Seq[Int]]
@@ -2206,48 +2211,48 @@ class SparkContext(config: SparkConf) extends Logging {
   }
 
   // instrument code
-  private def tallyChildren(rdd: RDD[_], root: Boolean = true): Unit = {
-    // Topmost parent guard
-    rdd.dependencies.length match {
-      case 0 => return
-      case _ =>
-        rdd.dependencies.foreach {
-          d =>
-          // Append children to map
-          val parentRDD = d.rdd
-          if (!rddChildren.contains(parentRDD)) {
-            rddChildren(parentRDD) = Seq[Int](rdd.id)
-          } else if (!(rddChildren(parentRDD) contains rdd.id)) {
-            rddChildren(parentRDD) = rddChildren(parentRDD) :+ rdd.id
-          }
-          // Recursion
-          tallyChildren(d.rdd, root = false)
-        }
-        if (root) {
-          logInfo("RDD Lineage: " + rddChildren.toString())
-        }
-    }
-  }
+  // private def tallyChildren(rdd: RDD[_], root: Boolean = true): Unit = {
+  //   // Topmost parent guard
+  //   rdd.dependencies.length match {
+  //     case 0 => return
+  //     case _ =>
+  //       rdd.dependencies.foreach {
+  //         d =>
+  //         // Append children to map
+  //         val parentRDD = d.rdd
+  //         if (!rddChildren.contains(parentRDD)) {
+  //           rddChildren(parentRDD) = Seq[Int](rdd.id)
+  //         } else if (!(rddChildren(parentRDD) contains rdd.id)) {
+  //           rddChildren(parentRDD) = rddChildren(parentRDD) :+ rdd.id
+  //         }
+  //         // Recursion
+  //         tallyChildren(d.rdd, root = false)
+  //       }
+  //       if (root) {
+  //         logInfo("RDD Lineage: " + rddChildren.toString())
+  //       }
+  //   }
+  // }
 
   private def clearChildren(): Unit = {
     rddChildren.clear()
   }
 
-  private def cacheRDDs(): Unit = {
-    val tossed = rddChildren.filter({
-      case (_, v) => v.length < 2
-    })
+  // private def cacheRDDs(): Unit = {
+  //   val tossed = rddChildren.filter({
+  //     case (_, v) => v.length < 2
+  //   })
 
-    tossed.foreach({
-      case (k, _) => rddChildren -= k
-    })
+  //   tossed.foreach({
+  //     case (k, _) => rddChildren -= k
+  //   })
 
-    logInfo("RDDs to be Cached: " + rddChildren.keys.toString())
+  //   logInfo("RDDs to be Cached: " + rddChildren.keys.toString())
 
-    rddChildren.foreach{
-      case (parent, _) => parent.persist_internal(StorageLevel.MEMORY_ONLY)
-    }
-  }
+  //   rddChildren.foreach{
+  //     case (parent, _) => parent.persist_internal(StorageLevel.MEMORY_ONLY)
+  //   }
+  // }
 
   // private[spark] def uncacheRDDs(rdd: RDD[_], root: Boolean = true): Unit = {
   //   // Topmost parent guard
@@ -2299,10 +2304,6 @@ class SparkContext(config: SparkConf) extends Logging {
       resultHandler: (Int, U) => Unit): Unit = {
     if (stopped.get()) {
       throw new IllegalStateException("SparkContext has been shutdown")
-    }
-    if (conf.get(CACHE_MODE) == 3) {
-      tallyChildren(rdd)
-      cacheRDDs()
     }
     val callSite = getCallSite
     val cleanedFunc = clean(func)

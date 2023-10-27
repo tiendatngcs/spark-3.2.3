@@ -1207,42 +1207,84 @@ private[spark] class DAGScheduler(
       }
       parseTotalFound(sc.jobIdToFinalRDD(jobPrev))
     }
-    parseTotalFound(rdd)
-    parseCandidateRDDs()
-    if (jobId > 0) {
-      for ((candidateRDD, _) <- sc.rddChildren) {
-        checkForCurrentJobOnly(candidateRDD, rdd)
-      }
-      // uncache/delete cached RDD that not use again in the next job
-      for (cachedRdd <- sc.cachedRDDs) {
-        var found = false
-        for (rdd <- sc.rddChildren.keys) {
-          if (rdd.id == cachedRdd.id) {
-            found = true
+
+    if (sc.conf.get(config.CACHE_MODE) == 4) {
+      parseToCountReuse(rdd)
+      filterForCandidateRDDs()
+      if (jobId > 0) {
+        // unpersist rdd that are not used in this job
+        for (cachedRdd <- sc.cachedRDDs) {
+          for (cachedRdd <- sc.cachedRDDs) {
+            var found = false
+            for (rdd <- sc.rddReuseCount.keys) {
+              if (rdd.id == cachedRdd.id) {
+                found = true
+              }
+            }
+            if (!found) {
+              cachedRdd.unpersist()
+              sc.refDistance.remove(cachedRdd.id)
+              sc.cachedRDDs = sc.cachedRDDs.filter(_ != cachedRdd)
+            }
           }
         }
-        if (!found) {
-          cachedRdd.unpersist()
-          sc.refDistance.remove(cachedRdd.id)
-          sc.cachedRDDs = sc.cachedRDDs.filter(_ != cachedRdd)
+        // cache our candidates
+        sc.rddReuseCount.foreach {
+          case (rdd, _) =>
+            if (!sc.cachedRDDs.contains(rdd)) {
+              sc.refDistance(rdd.id) = Seq[Int]()
+              sc.cachedRDDs = sc.cachedRDDs :+ rdd
+              try {
+                rdd.persist(StorageLevel.MEMORY_ONLY)
+                logInfo("Persisted RDD " + rdd.id + " of job " + jobId)
+              } catch {
+                case e: Throwable =>
+                  logInfo("RDD " + rdd.id + " already cached in job " + jobId)
+              }
+            }
         }
       }
-    }
-    sc.rddChildren.foreach {
-      case (rdd, _) =>
-        if (!sc.cachedRDDs.contains(rdd)) {
-          sc.refDistance(rdd.id) = Seq[Int]()
-          sc.cachedRDDs = sc.cachedRDDs :+ rdd
-          try {
-            rdd.persist(StorageLevel.MEMORY_ONLY)
-          } catch {
-            case e: Throwable =>
-              logInfo("RDD " + rdd.id + " already cached in job " + jobId)
+    } else {
+      assert(sc.conf.get(config.CACHE_MODE) == 3)
+      parseTotalFound(rdd)
+      parseCandidateRDDs()
+      if (jobId > 0) {
+        for ((candidateRDD, _) <- sc.rddChildren) {
+          checkForCurrentJobOnly(candidateRDD, rdd)
+        }
+        // uncache/delete cached RDD that not use again in the next job
+        for (cachedRdd <- sc.cachedRDDs) {
+          var found = false
+          for (rdd <- sc.rddChildren.keys) {
+            if (rdd.id == cachedRdd.id) {
+              found = true
+            }
+          }
+          if (!found) {
+            cachedRdd.unpersist()
+            sc.refDistance.remove(cachedRdd.id)
+            sc.cachedRDDs = sc.cachedRDDs.filter(_ != cachedRdd)
           }
         }
+      }
+      sc.rddChildren.foreach {
+        case (rdd, _) =>
+          if (!sc.cachedRDDs.contains(rdd)) {
+            sc.refDistance(rdd.id) = Seq[Int]()
+            sc.cachedRDDs = sc.cachedRDDs :+ rdd
+            try {
+              rdd.persist(StorageLevel.MEMORY_ONLY)
+              logInfo("Persisted RDD " + rdd.id + " of job " + jobId)
+            } catch {
+              case e: Throwable =>
+                logInfo("RDD " + rdd.id + " already cached in job " + jobId)
+            }
+          }
+      }
     }
   }
   private def parseTotalFound(rdd: RDD[_]): Unit = {
+    // traverse backward along the rdd graph
     val len = rdd.dependencies.length
     len match {
       case 0 => return
@@ -1260,14 +1302,36 @@ private[spark] class DAGScheduler(
         }
     }
   }
+  private def parseToCountReuse(rdd: RDD[_]): Unit = {
+    // traverse backward along the rdd graph
+    // increment appearance count
+    if (!sc.rddReuseCount.contains(rdd)) {
+      sc.rddReuseCount(rdd) = 1;
+    } else {
+      sc.rddReuseCount(rdd) = sc.rddReuseCount(rdd) + 1;
+    }
+    val len = rdd.dependencies.length
+    len match {
+      case 0 => return
+      case _ =>
+        rdd.dependencies.foreach {
+          d =>
+            parseToCountReuse(d.rdd)
+
+        }
+    }
+  }
   private def checkForCurrentJobOnly(candidateRDD: RDD[_], rddJob: RDD[_]): Unit = {
     val len = rddJob.dependencies.length
     len match {
+      // This rdd does not have any parent
       case 0 =>
         sc.rddChildren.remove(candidateRDD)
         return
+      // result rdd of this job has some parents
       case _ =>
         if (candidateRDD == rddJob) {
+          // if the candidate is job result then do nothing
           return
         }
         rddJob.dependencies.foreach {
@@ -1286,6 +1350,14 @@ private[spark] class DAGScheduler(
     })
     tossed.foreach({
       case (k, _) => sc.rddChildren -= k
+    })
+  }
+  private def filterForCandidateRDDs(): Unit = {
+    val tossed = sc.rddReuseCount.filter({
+      case (_, v) => v < 2
+    })
+    tossed.foreach({
+      case (k, _) => sc.rddReuseCount -= k
     })
   }
   // instrument code end
@@ -1352,7 +1424,7 @@ private[spark] class DAGScheduler(
     val stageIds = jobIdToStageIds(jobId).toArray
     val stageInfos = stageIds.flatMap(id => stageIdToStage.get(id).map(_.latestInfo))
     // instrument code
-    if (sc.conf.get(config.CACHE_MODE) == 3) {
+    if (sc.conf.get(config.CACHE_MODE) == 3 || sc.conf.get(config.CACHE_MODE) == 4) {
       parseDAGToCandidateRDDs(finalRDD, jobId)
       parseRefDistance(stageInfos, jobId)
     }

@@ -26,7 +26,7 @@ import org.apache.spark.sql.SparkSession
 /**
  * Transitive closure on a graph.
  */
-object SparkTC {
+object SparkTCCacheAll {
   // val numEdges = 200
   // val numVertices = 100
   val rand = new Random(42)
@@ -43,7 +43,7 @@ object SparkTC {
 
   def main(args: Array[String]): Unit = {
     if (args.length < 4) {
-      System.err.println("Usage: SparkTC <Slices> <V> <E> <AppName>")
+      System.err.println("Usage: SparkTCCacheAll <Slices> <V> <E> <AppName>")
       System.exit(1)
     }
     val numVertices = args(1).toInt
@@ -62,7 +62,7 @@ object SparkTC {
     // the graph to obtain the path (x, z).
 
     // Because join() joins on keys, the edges are stored in reversed order.
-    val edges = tc.map(x => (x._2, x._1))
+    val edges = tc.map(x => (x._2, x._1)).cache()
 
     // This join is iterated until a fixed point is reached.
     var oldCount = 0L
@@ -71,7 +71,8 @@ object SparkTC {
       oldCount = nextCount
       // Perform the join, obtaining an RDD of (y, (z, x)) pairs,
       // then project the result to obtain the new (x, z) paths.
-      tc = tc.union(tc.join(edges).map(x => (x._2._2, x._2._1))).distinct().cache()
+      tc = tc.union(tc.join(edges).cache().map(x => (x._2._2, x._2._1))
+      .cache()).cache().distinct().cache()
       nextCount = tc.count()
     } while (nextCount != oldCount)
 

@@ -658,6 +658,12 @@ private[spark] class MemoryStore(
               ) {
                 selectedBlocks += blockId
                 freedMemory += entry.size
+                // scalastyle:off println
+                print(s"Evicting block ${blockId.name}")
+                print(s" of priority ${blockId.priority}")
+                print(s" size ${entry.size}")
+                println()
+                // scalastyle:on println
               }
             }
           }

@@ -28,7 +28,7 @@ import org.apache.spark.sql.SparkSession
  * This is an example implementation for learning how to use Spark. For more conventional use,
  * please refer to org.apache.spark.ml.clustering.KMeans.
  */
-object SparkKMeans {
+object SparkKMeansCacheAll {
 
   def parseVector(line: String): Vector[Double] = {
     DenseVector(line.split("\t").map(_.toDouble))
@@ -60,7 +60,7 @@ object SparkKMeans {
   def main(args: Array[String]): Unit = {
 
     if (args.length < 5) {
-      System.err.println("Usage: SparkKMeans <file> <k> <convergeDist> <maxIter> <AppName>")
+      System.err.println("Usage: SparkKMeansCacheAll <file> <k> <convergeDist> <maxIter> <AppName>")
       System.exit(1)
     }
 
@@ -71,23 +71,23 @@ object SparkKMeans {
       .appName(args(args.length-1))
       .getOrCreate()
 
-    val lines = spark.read.textFile(args(0)).rdd
+    val lines = spark.read.textFile(args(0)).rdd.cache()
     val data = lines.map(parseVector _).cache()
     val K = args(1).toInt
     val convergeDist = args(2).toDouble
     val maxIter = args(3).toInt
 
-    val kPoints = data.takeSample(withReplacement = false, K, 42)
+    val kPoints = data.takeSample(withReplacement = false, K, 42) // action
     var tempDist = 1.0
     var tempIter = 0
 
     while(tempDist > convergeDist && tempIter < maxIter) {
-      val closest = data.map (p => (closestPoint(p, kPoints), (p, 1)))
+      val closest = data.map (p => (closestPoint(p, kPoints), (p, 1))).cache()
 
-      val pointStats = closest.reduceByKey(mergeResults)
+      val pointStats = closest.reduceByKey(mergeResults).cache()
 
       val newPoints = pointStats.map {pair =>
-        (pair._1, pair._2._1 * (1.0 / pair._2._2))}.collectAsMap()
+        (pair._1, pair._2._1 * (1.0 / pair._2._2))}.cache().collectAsMap()  // action
 
       tempDist = 0.0
       for (i <- 0 until K) {
