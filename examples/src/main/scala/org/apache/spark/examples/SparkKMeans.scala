@@ -81,11 +81,13 @@ object SparkKMeans {
     var tempDist = 1.0
     var tempIter = 0
 
-    while(tempDist > convergeDist && tempIter < maxIter) {
+    // while(tempDist > convergeDist && tempIter < maxIter) {
+    while(tempIter < maxIter) {
       val closest = data.map (p => (closestPoint(p, kPoints), (p, 1)))
 
       val pointStats = closest.reduceByKey(mergeResults)
 
+      // action to generate a job at each loop
       val newPoints = pointStats.map {pair =>
         (pair._1, pair._2._1 * (1.0 / pair._2._2))}.collectAsMap()
 

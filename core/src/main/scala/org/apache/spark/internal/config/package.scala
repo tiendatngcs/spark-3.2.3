@@ -365,7 +365,11 @@ package object config {
     .createWithDefault(0.6)
 
   private[spark] val CACHE_MODE = ConfigBuilder("spark.memory.cacheMode")
-    .doc("0 : vanilla caching | 1 : no cache | 2 : cache all | 3 : custom implementation")
+    .doc("0 : vanilla caching " +
+      "| 1 : no cache " +
+      "| 2 : cache all " +
+      "| 3 : custom implementation " +
+      "| 4: newer custom implementation")
     .version("Dat version")
     .intConf
     .createWithDefault(0)

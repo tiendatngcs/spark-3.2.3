@@ -15,19 +15,31 @@
  * limitations under the License.
  */
 
-package org.apache.spark.executor
-
-import java.nio.ByteBuffer
-
-import org.apache.spark.TaskState.TaskState
+// scalastyle:off println
+package org.apache.spark.examples
 
 /**
- * A pluggable interface used by the Executor to send updates to the cluster scheduler.
+ * Transitive closure on a graph.
  */
-private[spark] trait ExecutorBackend {
-  def statusUpdate(taskId: Long, state: TaskState, data: ByteBuffer): Unit
-  // Modification: Added an RPC to call into task scheduler for easier logging
-  def recomputeAlert(rddSignature: String, time: Long): Unit
-  // End of Modification
-}
+import org.apache.spark.sql.SparkSession
 
+object SparkWordCountCacheAll {
+  def main(args: Array[String]): Unit = {
+    if (args.length != 2) {
+      System.err.println("Usage: SparkWordCount <file> <AppName>")
+      System.exit(1)
+    }
+    val spark = SparkSession
+      .builder
+      .appName(args(args.length-1))
+      .getOrCreate()
+    val sc = spark.sparkContext
+    var lines = spark.read.textFile(args(0)).rdd.cache()
+    val words = lines.flatMap(s => s.split(" ")).cache()
+    val ones = words.map(w => (w, 1)).cache()
+    val counts = ones.reduceByKey(_ + _).cache()
+    val out = counts.collect()
+    spark.stop()
+  }
+}
+// scalastyle:on println

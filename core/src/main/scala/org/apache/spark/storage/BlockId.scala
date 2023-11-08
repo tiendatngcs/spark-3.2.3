@@ -35,6 +35,14 @@ import org.apache.spark.network.shuffle.RemoteBlockPushResolver
 sealed abstract class BlockId {
   /** A globally unique identifier for this Block. Can be used for ser/de. */
   def name: String
+  // Modification: Stores Weight to easily sort Blocks by Weight
+  //               Default weight of 0 meaning algorithm will prioritize eviction of non-RDD
+  //               blocks.
+  var weight: Double = 0.0
+  def setWeight(value: Double): Unit = {
+    weight = value
+  }
+  // End of Modification
 
   // convenience methods
   def asRDDId: Option[RDDBlockId] = if (isRDD) Some(asInstanceOf[RDDBlockId]) else None

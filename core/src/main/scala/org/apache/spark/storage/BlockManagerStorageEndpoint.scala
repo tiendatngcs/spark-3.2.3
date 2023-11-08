@@ -42,6 +42,19 @@ class BlockManagerStorageEndpoint(
 
   // Operations that involve removing blocks may be slow and should be done asynchronously
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+    // Modification: Add RPC
+    case ReferenceData(jobId, refData) =>
+      doAsync[Boolean]("Reference data updated for new job " + jobId, context) {
+        blockManager.memoryStore.updateReferenceData(jobId, refData)
+        true
+      }
+
+    case JobSuccess(jobId) =>
+      doAsync[Boolean]("Driver successfully recieved job " + jobId, context) {
+        blockManager.memoryStore.updateAfterJobSuccess(jobId)
+        true
+      }
+    // End of Modification
     case RemoveBlock(blockId) =>
       doAsync[Boolean]("removing block " + blockId, context) {
         blockManager.removeBlock(blockId)

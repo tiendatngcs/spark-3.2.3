@@ -2315,9 +2315,9 @@ class SparkContext(config: SparkConf) extends Logging {
     progressBar.foreach(_.finishAll())
     rdd.doCheckpoint()
     // instrument code
-    if (conf.get(CACHE_MODE) == 3) {
-      clearChildren()
-    }
+    // if (conf.get(CACHE_MODE) == 3) {
+    //   clearChildren()
+    // }
     // instrument code end
   }
 

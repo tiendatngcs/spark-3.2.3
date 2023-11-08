@@ -112,6 +112,23 @@ class BlockManagerMasterEndpoint(
   private lazy val driverEndpoint =
     RpcUtils.makeDriverRef(CoarseGrainedSchedulerBackend.ENDPOINT_NAME, conf, rpcEnv)
 
+  // Modification: Add broadcast to storage endpoint RPC
+  def broadcastReferenceData(jobId: Int,
+                             refData: mutable.HashMap[Int, mutable.HashSet[Int]]): Unit = {
+    val managers = blockManagerInfo.toList
+    for (manager <- managers) {
+      manager._2.storageEndpoint.ask[Boolean](ReferenceData(jobId, refData))
+    }
+  }
+
+  def broadcastJobSuccess(jobId: Int): Unit = {
+    val managers = blockManagerInfo.toList
+    for (manager <- managers) {
+      manager._2.storageEndpoint.ask[Boolean](JobSuccess(jobId))
+    }
+  }
+  // End of Modification
+
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case RegisterBlockManager(id, localDirs, maxOnHeapMemSize, maxOffHeapMemSize, endpoint) =>
       context.reply(register(id, localDirs, maxOnHeapMemSize, maxOffHeapMemSize, endpoint))
@@ -139,6 +156,15 @@ class BlockManagerMasterEndpoint(
       broadcastRefDistance(refDistance)
       context.reply(true)
     // instrument code end
+    // Modification: Added RPC
+    case ReferenceData(jobId, refData) =>
+      broadcastReferenceData(jobId, refData)
+      context.reply(true)
+
+    case JobSuccess(jobId) =>
+      broadcastJobSuccess(jobId)
+      context.reply(true)
+    // End of Modification
 
     case GetLocations(blockId) =>
       context.reply(getLocations(blockId))

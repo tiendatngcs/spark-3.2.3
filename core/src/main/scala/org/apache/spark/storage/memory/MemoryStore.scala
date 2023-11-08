@@ -96,12 +96,20 @@ private[spark] class MemoryStore(
     memoryManager: MemoryManager,
     blockEvictionHandler: BlockEvictionHandler
 ) extends Logging {
+  private val cacheMode: Int = conf.get(CACHE_MODE)
 
   // Note: all changes to memory allocations, notably putting blocks, evicting blocks, and
   // acquiring or releasing unroll memory, must be synchronized on `memoryManager`!
 
-  private val entries =
-    new LinkedHashMap[BlockId, MemoryEntry[_]](32, 0.75f, true)
+  // Modification: Added a map between RDD signature and Block
+  //               and data structures for reference data
+  private val entries = new LinkedHashMap[BlockId, MemoryEntry[_]](32, 0.75f, true)
+  private val blockIds = new mutable.HashMap[Tuple2[Int, Int], BlockId]()
+  private val costData = new mutable.HashMap[Tuple2[Int, Int], Long]()
+  private var refData = new mutable.HashMap[Int, mutable.HashSet[Int]]()
+  private val allRefData = new mutable.HashMap[Int, mutable.HashSet[Int]]()
+  private val lastRef = new mutable.HashMap[Int, Int]()
+  private var latestJobId: Int = 0
 
   // instrument code
   // key = rdd id, value = ref distance
@@ -120,7 +128,6 @@ private[spark] class MemoryStore(
   private val unrollMemoryThreshold: Long =
     conf.get(STORAGE_UNROLL_MEMORY_THRESHOLD)
 
-  private val cacheMode: Int = conf.get(CACHE_MODE)
 
   /** Total amount of memory available for storage, in bytes. */
   private def maxMemory: Long = {
@@ -210,6 +217,137 @@ private[spark] class MemoryStore(
   }
   // instrument code end
 
+  // Modification: Added Weight Calculation, should be called from the Executor
+  //               Also added RPC endpoint
+  def updateReferenceData(jobId: Int,
+                          refDataUpdated: mutable.HashMap[Int, mutable.HashSet[Int]]): Unit = {
+    latestJobId = jobId
+    refData.synchronized {
+      refData = refDataUpdated.clone()
+      allRefData.synchronized {
+        lastRef.synchronized {
+          for (ref <- refData) {
+              allRefData.getOrElseUpdate(ref._1, new mutable.HashSet[Int]()) ++= ref._2
+              lastRef.put(ref._1, jobId)
+          }
+        }
+      }
+    }
+  }
+
+  def updateAfterJobSuccess(jobId: Int): Unit = {
+    latestJobId = jobId
+    blockIds.synchronized {
+      val blockIter = blockIds.keysIterator
+      for (key <- blockIter) {
+        updatePartitionWeight(key)
+      }
+    }
+  }
+
+def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = {
+    costData.synchronized {
+      for (pair <- costMap) {
+        if (!costData.contains((pair._1, partition))) {
+          costData.put((pair._1, partition), pair._2)
+        }
+        else if (pair._2 != 0) {
+          costData.put((pair._1, partition), pair._2)
+        }
+      }
+    }
+  }
+
+  def updatePartitionWeight(rddSignature: Tuple2[Int, Int]): Unit = {
+    val blockIdOpt = blockIds.synchronized {
+      blockIds.get(rddSignature)
+    }
+
+    blockIdOpt match {
+      case Some(blockId) =>
+        val onHeap = entries.synchronized {
+          entries.get(blockId).memoryMode match {
+            case MemoryMode.ON_HEAP =>
+              true
+            case _ =>
+              false
+          }
+        }
+        if (onHeap) {
+          val size = getSize(blockId)
+          val scaledSize = size == 0L match {
+            case true =>
+              1.0
+            case false =>
+              math.min(
+                8.0, // Maximum value: (if scaledSize > 8, set to 8)
+                math.max(
+                  1.0, // Minimum value: (if scaledSize < 1, set to 1)
+                  // log base 16 of size, then add 3.5
+                  (scaleByLog(16.0, size.toDouble) + 3.5)))
+          }
+          val computeTime = costData.synchronized {
+            costData.getOrElse(rddSignature, 0L)
+          }
+          val scaledComputeTime = computeTime == 0L match {
+            case true =>
+              1.0
+            case false =>
+              math.min(
+                8.0, // Maximum value: (if scaledComputeTime > 8, set to 8)
+                math.max(
+                  1.0, // Minimum value: (if scaledComputeTime < 1, set to 1)
+                  // log base 10 of size, then add 4.0
+                  (math.log10(computeTime.toDouble) + 4.0)))
+          }
+          val thisRefCount = refData.synchronized {
+            refData.getOrElseUpdate(rddSignature._1, new mutable.HashSet[Int]()).size.toDouble
+          }
+          val thisPastRef = allRefData.synchronized {
+            allRefData.getOrElseUpdate(rddSignature._1,
+                                       new mutable.HashSet[Int]()).size.toDouble - thisRefCount
+          }
+          val thisDistance = lastRef.synchronized {
+            (latestJobId - lastRef.getOrElse(rddSignature._1, latestJobId - 1)).toDouble
+          }
+          // Take whichever is larger between refcount and heuristic weight
+          val weight = math.max(thisRefCount,
+                                ((scaledComputeTime * thisPastRef) /
+                                (scaledSize * thisDistance)))
+          if (weight > 0.0) {
+            blockId.setWeight(weight)
+            blockIds.synchronized {
+              blockIds.put(rddSignature, blockId)
+            }
+          }
+          else {
+            // Update Weight to 0 if somehow the weight is less than 0
+            blockId.setWeight(0.0)
+            blockIds.synchronized {
+              blockIds.put(rddSignature, blockId)
+            }
+          }
+        }
+        else {
+          // Update Weight to 0 if it is not on heap, probably went straight to disc
+          blockId.setWeight(0.0)
+          blockIds.synchronized {
+            blockIds.put(rddSignature, blockId)
+          }
+        }
+      case None =>
+        // This means the RDD partition isn't stored in the memory store
+        // or was stored but was removed
+        // TODO: Use this space to update a computation time, for unstored
+        //       RDDs
+    }
+  }
+
+  def scaleByLog(base: Double, num: Double): Double = {
+    math.log10(num) / math.log10(base)
+  }
+  // End of Modification
+
   /**
    * Use `size` to test if there is enough space in MemoryStore. If so, create the ByteBuffer and
    * put it into MemoryStore. Otherwise, the ByteBuffer won't be created.
@@ -243,6 +381,14 @@ private[spark] class MemoryStore(
         }
         // instrument code end
       }
+      // Modification: Add Block to name map, for ease of updating
+      // We only want RDD blocks
+      if (cacheMode == 4) {
+        getRddSignature(blockId).map(signature => blockIds.synchronized {
+          blockIds.put(signature, blockId)
+        })
+      }
+      // End of Modification
       logInfo(
         "Block %s stored as bytes in memory (estimated size %s, free %s)"
           .format(
@@ -375,7 +521,14 @@ private[spark] class MemoryStore(
         entries.synchronized {
           entries.put(blockId, entry)
         }
-
+        // Modification: Add Block to name map, for ease of updating
+        // We only want RDD blocks
+        if (cacheMode == 4) {
+          getRddSignature(blockId).map(signature => blockIds.synchronized {
+            blockIds.put(signature, blockId)
+          })
+        }
+        // End of Modification
         logInfo(
           "Block %s stored as values in memory (estimated size %s, free %s)"
             .format(
@@ -555,6 +708,14 @@ private[spark] class MemoryStore(
         s"Block $blockId of size ${entry.size} dropped " +
           s"from memory (free ${maxMemory - blocksMemoryUsed})"
       )
+      // Modification: Remove block from name map
+      // We only want RDD blocks
+      if (cacheMode == 4) {
+        getRddSignature(blockId).map(signature => blockIds.synchronized {
+          blockIds.remove(signature)
+        })
+      }
+      // End of Modification
       // instrument code
       if (cacheMode == 3) {
         if (blockId.name.split("_")(0) == "rdd") {
@@ -595,6 +756,12 @@ private[spark] class MemoryStore(
     blockId.asRDDId.map(_.rddId)
   }
 
+  // Modification: Add Get RDD Signature From block
+  private def getRddSignature(blockId: BlockId): Option[Tuple2[Int, Int]] = {
+    blockId.asRDDId.map(rddBlock => (rddBlock.rddId, rddBlock.splitIndex))
+  }
+  // End of Modification
+
   /**
    * Try to evict blocks to free up a given amount of space to store a particular block. Can fail if
    * either the block is bigger than our memory or it would require replacing another block from the
@@ -616,6 +783,7 @@ private[spark] class MemoryStore(
       memoryMode: MemoryMode
   ): Long = {
     assert(space > 0)
+    logInfo("Evicting blocks to free space")
     // instrument code
     val stageId = TaskContext.get().stageId()
     // instrument code end
@@ -632,7 +800,37 @@ private[spark] class MemoryStore(
       // (because of getValue or getBytes) while traversing the iterator, as that
       // can lead to exceptions.
       entries.synchronized {
-        if (cacheMode == 3) {
+          // Modification: Sort by least weight
+        if (cacheMode == 4) {
+          val iterator = blockIds.synchronized {
+          val blockIter = blockIds.keysIterator
+          for (key <- blockIter) {
+            updatePartitionWeight(key)
+          }
+          blockIds.toList.sortBy(_._2.weight).iterator
+          }
+          // Original:
+          // val iterator = entries.entrySet().iterator()
+          // End of Modification
+          while (freedMemory < space && iterator.hasNext) {
+            val pair = iterator.next()
+            // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
+            val blockId = pair._2
+            val entry = entries.get(blockId)
+            // End of Modification
+            if (blockIsEvictable(blockId, entry)) {
+              // We don't want to evict blocks which are currently being read, so we need to obtain
+              // an exclusive write lock on blocks which are candidates for eviction. We perform a
+              // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
+              if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
+                selectedBlocks += blockId
+                freedMemory += entry.size
+              }
+            }
+          }
+        }
+        // End of Modification
+        else if (cacheMode == 3) {
           // instrument code
           // val iterator = entries.entrySet().iterator()
           calculatePriority(stageId)

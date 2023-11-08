@@ -19,10 +19,13 @@ package org.apache.spark.storage
 
 import java.io.{Externalizable, ObjectInput, ObjectOutput}
 
-import scala.collection.mutable
+// Modification: Added HashMap Data Structure
+import scala.collection.mutable.{HashMap, HashSet}
 
 import org.apache.spark.rpc.RpcEndpointRef
 import org.apache.spark.util.Utils
+// import scala.collection.HashMap
+// End of Modification
 
 private[spark] object BlockManagerMessages {
   //////////////////////////////////////////////////////////////////////////////////
@@ -30,9 +33,17 @@ private[spark] object BlockManagerMessages {
   //////////////////////////////////////////////////////////////////////////////////
   sealed trait ToBlockManagerMasterStorageEndpoint
 
-  // instrument code
-  case class RefDistanceBroadcast(refDistance: mutable.HashMap[Int, Seq[Int]])
+  // Modification: Add RPC Messages
+  case class ReferenceData(jobId: Int, refData: HashMap[Int, HashSet[Int]])
     extends ToBlockManagerMasterStorageEndpoint
+
+  case class JobSuccess(jobId: Int)
+    extends ToBlockManagerMasterStorageEndpoint
+  // End of Modification
+
+  // instrument code
+  case class RefDistanceBroadcast(refDistance: HashMap[Int, Seq[Int]])
+      extends ToBlockManagerMasterStorageEndpoint
   // instrument code end
 
   // Remove a block from the storage endpoints that have it. This can only be used to remove
@@ -41,7 +52,7 @@ private[spark] object BlockManagerMessages {
 
   // Replicate blocks that were lost due to executor failure
   case class ReplicateBlock(blockId: BlockId, replicas: Seq[BlockManagerId], maxReplicas: Int)
-    extends ToBlockManagerMasterStorageEndpoint
+      extends ToBlockManagerMasterStorageEndpoint
 
   case object DecommissionBlockManager extends ToBlockManagerMasterStorageEndpoint
 
@@ -53,7 +64,7 @@ private[spark] object BlockManagerMessages {
 
   // Remove all blocks belonging to a specific broadcast.
   case class RemoveBroadcast(broadcastId: Long, removeFromDriver: Boolean = true)
-    extends ToBlockManagerMasterStorageEndpoint
+      extends ToBlockManagerMasterStorageEndpoint
 
   /**
    * Driver to Executor message to trigger a thread dump.
@@ -70,19 +81,19 @@ private[spark] object BlockManagerMessages {
       localDirs: Array[String],
       maxOnHeapMemSize: Long,
       maxOffHeapMemSize: Long,
-      sender: RpcEndpointRef)
-    extends ToBlockManagerMaster
+      sender: RpcEndpointRef
+  ) extends ToBlockManagerMaster
 
   case class UpdateBlockInfo(
       var blockManagerId: BlockManagerId,
       var blockId: BlockId,
       var storageLevel: StorageLevel,
       var memSize: Long,
-      var diskSize: Long)
-    extends ToBlockManagerMaster
-    with Externalizable {
+      var diskSize: Long
+  ) extends ToBlockManagerMaster
+      with Externalizable {
 
-    def this() = this(null, null, null, 0, 0)  // For deserialization only
+    def this() = this(null, null, null, 0, 0) // For deserialization only
 
     override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
       blockManagerId.writeExternal(out)
@@ -104,19 +115,21 @@ private[spark] object BlockManagerMessages {
   case class GetLocations(blockId: BlockId) extends ToBlockManagerMaster
 
   case class GetLocationsAndStatus(blockId: BlockId, requesterHost: String)
-    extends ToBlockManagerMaster
+      extends ToBlockManagerMaster
 
   /**
    * The response message of `GetLocationsAndStatus` request.
    *
-   * @param localDirs if it is persisted-to-disk on the same host as the requester executor is
-   *                  running on then localDirs will be Some and the cached data will be in a file
-   *                  in one of those dirs, otherwise it is None.
+   * @param localDirs
+   *   if it is persisted-to-disk on the same host as the requester executor is running on then
+   *   localDirs will be Some and the cached data will be in a file in one of those dirs, otherwise
+   *   it is None.
    */
   case class BlockLocationsAndStatus(
       locations: Seq[BlockManagerId],
       status: BlockStatus,
-      localDirs: Option[Array[String]]) {
+      localDirs: Option[Array[String]]
+  ) {
     assert(locations.nonEmpty)
   }
 
@@ -137,20 +150,20 @@ private[spark] object BlockManagerMessages {
   case class DecommissionBlockManagers(executorIds: Seq[String]) extends ToBlockManagerMaster
 
   case class GetReplicateInfoForRDDBlocks(blockManagerId: BlockManagerId)
-    extends ToBlockManagerMaster
+      extends ToBlockManagerMaster
 
   case class GetBlockStatus(blockId: BlockId, askStorageEndpoints: Boolean = true)
-    extends ToBlockManagerMaster
+      extends ToBlockManagerMaster
 
   case class GetMatchingBlockIds(filter: BlockId => Boolean, askStorageEndpoints: Boolean = true)
-    extends ToBlockManagerMaster
+      extends ToBlockManagerMaster
 
   case class BlockManagerHeartbeat(blockManagerId: BlockManagerId) extends ToBlockManagerMaster
 
   case class IsExecutorAlive(executorId: String) extends ToBlockManagerMaster
 
   case class GetShufflePushMergerLocations(numMergersNeeded: Int, hostsToFilter: Set[String])
-    extends ToBlockManagerMaster
+      extends ToBlockManagerMaster
 
   case class RemoveShufflePushMergerLocation(host: String) extends ToBlockManagerMaster
 

@@ -173,8 +173,8 @@ abstract class RDD[T: ClassTag](
     // TODO: Handle changes of StorageLevel
     if (storageLevel != StorageLevel.NONE
         && newLevel != storageLevel
-        && !allowOverride
-        && conf.get(CACHE_MODE) != 2) {
+        && !allowOverride) {
+        // && conf.get(CACHE_MODE) != 2) {
       throw new UnsupportedOperationException(
         "Cannot change storage level of an RDD after it was already assigned a level %d %d %d"
         .format(storageLevel != StorageLevel.NONE, newLevel != storageLevel, !allowOverride))
@@ -251,19 +251,6 @@ abstract class RDD[T: ClassTag](
 
   /** Get the RDD's current storage level, or StorageLevel.NONE if none is set. */
   def getStorageLevel: StorageLevel = storageLevel
-
-  // Dat cache all rdds
-  if (conf.get(CACHE_MODE) == 2) {
-    // if (getStorageLevel != StorageLevel.NONE
-    //     && LocalRDDCheckpointData.transformStorageLevel(
-    //       StorageLevel.MEMORY_ONLY) != getStorageLevel
-    //     && !isLocallyCheckpointed) {
-    //   // do nothing
-    // } else {
-    //   cache();
-    // }
-    cache()
-  }
 
   /**
    * Lock for all mutable state of this RDD (persistence, partitions, dependencies, etc.).  We do
@@ -408,7 +395,12 @@ abstract class RDD[T: ClassTag](
     if (isCheckpointedAndMaterialized) {
       firstParent[T].iterator(split, context)
     } else {
-      compute(split, context)
+      // Modification
+      tBegan = System.currentTimeMillis()
+      val result = compute(split, context)
+      tEnded = System.currentTimeMillis()
+      result
+      // End Modification
     }
   }
 
@@ -1845,6 +1837,11 @@ abstract class RDD[T: ClassTag](
   /** User code that created this RDD (e.g. `textFile`, `parallelize`). */
   @transient private[spark] val creationSite = sc.getCallSite()
 
+  // Modification: Added Timestamping, called only on executor on compute
+  var tBegan: Long = 0
+  var tEnded: Long = 0
+  // End of Modification
+
   /**
    * The scope associated with the operation that created this RDD.
    *
@@ -2106,7 +2103,11 @@ abstract class RDD[T: ClassTag](
       deterministicLevelCandidates.maxBy(_.id)
     }
   }
-
+  // Dat cache all rdds
+  if (conf.get(CACHE_MODE) == 2) {
+    // cache()
+    this.persist(StorageLevel.MEMORY_ONLY)
+  }
 }
 
 

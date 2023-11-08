@@ -19,7 +19,9 @@ package org.apache.spark.storage
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.Iterable
-import scala.collection.mutable.HashMap
+// Modification: Added Data Structure
+import scala.collection.mutable.{HashMap, HashSet}
+// End of Modification
 import scala.concurrent.Future
 
 import org.apache.spark.{SparkConf, SparkException}
@@ -149,6 +151,16 @@ class BlockManagerMaster(
   def getExecutorEndpointRef(executorId: String): Option[RpcEndpointRef] = {
     driverEndpoint.askSync[Option[RpcEndpointRef]](GetExecutorEndpointRef(executorId))
   }
+
+  // Modification: Add RPC functions to propagate Reference Counts
+  def broadcastReferenceData(jobId: Int, refData: HashMap[Int, HashSet[Int]]): Unit = {
+    driverEndpoint.askSync[Boolean](ReferenceData(jobId, refData))
+  }
+
+  def broadcastJobSuccess(jobId: Int): Unit = {
+    driverEndpoint.askSync[Boolean](JobSuccess(jobId))
+  }
+  // End of Modification
 
   // instrument code
   def broadcastRefDistance(refDistance: HashMap[Int, Seq[Int]]): Unit = {
