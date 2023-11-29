@@ -26,7 +26,7 @@ import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.rdd.RDD
 // $example off$
 
-object TFIDFExample {
+object TFIDFExampleNoCache {
 
   def main(args: Array[String]): Unit = {
     if (args.length != 2) {
@@ -46,7 +46,7 @@ object TFIDFExample {
 
     // While applying HashingTF only needs a single pass to the data, applying IDF needs two passes:
     // First to compute the IDF vector and second to scale the term frequencies by IDF.
-    tf.cache()
+    // tf.cache()
     val idf = new IDF().fit(tf)
     val tfidf: RDD[Vector] = idf.transform(tf)
 

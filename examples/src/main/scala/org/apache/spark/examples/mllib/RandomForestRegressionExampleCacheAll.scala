@@ -25,7 +25,7 @@ import org.apache.spark.mllib.tree.RandomForest
 import org.apache.spark.mllib.util.MLUtils
 // $example off$
 
-object RandomForestRegressionExample {
+object RandomForestRegressionExampleCacheAll {
   def main(args: Array[String]): Unit = {
     if (args.length != 2) {
       println("RandomForestRegressionExample <input> <app_name>")
@@ -34,10 +34,13 @@ object RandomForestRegressionExample {
     val sc = new SparkContext(conf)
     // $example on$
     // Load and parse the data file.
-    val data = MLUtils.loadLibSVMFile(sc, args(0))
+    val data = MLUtils.loadLibSVMFile(sc, args(0)).cache()
     // Split the data into training and test sets (30% held out for testing)
     val splits = data.randomSplit(Array(0.7, 0.3))
     val (trainingData, testData) = (splits(0), splits(1))
+
+    trainingData.cache()
+    testData.cache()
 
     // Train a RandomForest model.
     // Empty categoricalFeaturesInfo indicates all features are continuous.
@@ -56,8 +59,8 @@ object RandomForestRegressionExample {
     val labelsAndPredictions = testData.map { point =>
       val prediction = model.predict(point.features)
       (point.label, prediction)
-    }
-    val testMSE = labelsAndPredictions.map{ case(v, p) => math.pow((v - p), 2)}.mean()
+    }.cache()
+    val testMSE = labelsAndPredictions.map{ case(v, p) => math.pow((v - p), 2)}.cache().mean()
     println(s"Test Mean Squared Error = $testMSE")
     println(s"Learned regression forest model:\n ${model.toDebugString}")
 

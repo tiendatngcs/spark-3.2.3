@@ -25,7 +25,7 @@ import org.apache.spark.mllib.tree.RandomForest
 import org.apache.spark.mllib.util.MLUtils
 // $example off$
 
-object RandomForestRegressionExample {
+object RandomForestRegressionExampleNoCache {
   def main(args: Array[String]): Unit = {
     if (args.length != 2) {
       println("RandomForestRegressionExample <input> <app_name>")

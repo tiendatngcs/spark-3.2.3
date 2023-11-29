@@ -26,7 +26,7 @@ import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.rdd.RDD
 // $example off$
 
-object TFIDFExample {
+object TFIDFExampleCacheAll {
 
   def main(args: Array[String]): Unit = {
     if (args.length != 2) {
@@ -48,7 +48,7 @@ object TFIDFExample {
     // First to compute the IDF vector and second to scale the term frequencies by IDF.
     tf.cache()
     val idf = new IDF().fit(tf)
-    val tfidf: RDD[Vector] = idf.transform(tf)
+    val tfidf: RDD[Vector] = idf.transform(tf).cache()
 
     // spark.mllib IDF implementation provides an option for ignoring terms which occur in less than
     // a minimum number of documents. In such cases, the IDF for these terms is set to 0.
