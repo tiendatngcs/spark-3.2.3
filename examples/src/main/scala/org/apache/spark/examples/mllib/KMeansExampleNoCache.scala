@@ -25,14 +25,14 @@ import org.apache.spark.mllib.clustering.KMeans
 import org.apache.spark.mllib.linalg.Vectors
 // $example off$
 
-object KMeansExample {
+object KMeansExampleNoCache {
 
   def main(args: Array[String]): Unit = {
 
     // Kmeans <input> <clusters> <iters> <appName>
 
     if (args.length != 2) {
-      println("KMeansExample <input> <clusters> <iters> <appName>")
+      println("KMeansExampleNoCache <input> <clusters> <iters> <appName>")
     }
 
     val conf = new SparkConf().setAppName(args(args.length-1))
@@ -42,7 +42,7 @@ object KMeansExample {
     // Load and parse the data
     // val data = sc.textFile("data/mllib/kmeans_data.txt")
     val data = sc.textFile(args(0))
-    val parsedData = data.map(s => Vectors.dense(s.split("[\\s\t]+").map(_.toDouble))).cache()
+    val parsedData = data.map(s => Vectors.dense(s.split("[\\s\t]+").map(_.toDouble)))
 
     // Cluster the data into two classes using KMeans
     val numClusters = args(1).toInt

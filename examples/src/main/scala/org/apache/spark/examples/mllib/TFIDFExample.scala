@@ -59,9 +59,11 @@ object TFIDFExample {
 
     // println("tfidf: ")
     // tfidf.collect.foreach(x => println(x))
+    tfidf.collect
 
     // println("tfidfIgnore: ")
     // tfidfIgnore.collect.foreach(x => println(x))
+    tfidfIgnore.collect
 
     sc.stop()
   }

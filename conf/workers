@@ -18,6 +18,6 @@
 # A Spark Worker will be started on each of the machines listed below.
 csce-nguyen-s2.engr.tamu.edu
 csce-nguyen-s3.engr.tamu.edu
-#csce-nguyen-s4.engr.tamu.edu
-#csce-nguyen-s5.engr.tamu.edu
-#csce-nguyen-s6.engr.tamu.edu
+csce-nguyen-s4.engr.tamu.edu
+csce-nguyen-s5.engr.tamu.edu
+csce-nguyen-s6.engr.tamu.edu

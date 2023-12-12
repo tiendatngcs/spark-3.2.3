@@ -222,7 +222,9 @@ abstract class RDD[T: ClassTag](
    */
   // def persist(): this.type = persist(StorageLevel.MEMORY_ONLY)
   def persist(): this.type = {
-    if (conf.get(CACHE_MODE) == 0 || conf.get(CACHE_MODE) == 2) {
+    if ((conf.get(CACHE_MODE) == 0 && !conf.get(DISABLE_CACHING_APIS))
+        || conf.get(CACHE_MODE) == 2
+        || (conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))) {
       // vanilla or cache all
       persist(StorageLevel.MEMORY_ONLY)
     } else {

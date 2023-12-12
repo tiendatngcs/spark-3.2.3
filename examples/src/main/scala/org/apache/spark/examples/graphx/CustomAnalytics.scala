@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-// scalastyle:off println
+// scalastyle:off
 package org.apache.spark.examples.graphx
 
 import scala.collection.mutable
@@ -156,9 +156,61 @@ object CustomAnalytics {
         println(s"Triangles: ${triangleTypes}")
         sc.stop()
 
+      case "scc" =>
+        val numIterOpt = options.remove("numIter").map(_.toInt)
+        val numIter = numIterOpt match {
+          case Some(n) =>
+            n
+          case None => {
+            System.err.println("Invalid NumIter")
+            System.exit(1)
+            0
+          }
+        }
+        options.foreach {
+          case (opt, _) => throw new IllegalArgumentException(s"Invalid option: $opt")
+        }
+
+        println("======================================")
+        println("|      Strongly Connected Components |")
+        println("======================================")
+        println(s"Input file $fname")
+
+        val sc = new SparkContext(conf.setAppName(s"StronglyConnectedComponents(${app_name}_$fname)"))
+
+        val unpartitionedGraph = GraphLoader.edgeListFile(sc, fname,
+          numEdgePartitions = numEPart,
+          edgeStorageLevel = edgeStorageLevel,
+          vertexStorageLevel = vertexStorageLevel).cache()
+        val graph = partitionStrategy.foldLeft(unpartitionedGraph)(_.partitionBy(_))
+        val scc = StronglyConnectedComponents.run(graph, numIter)
+        sc.stop()
+
+      case "svdpp" =>
+        options.foreach {
+          case (opt, _) => throw new IllegalArgumentException(s"Invalid option: $opt")
+        }
+
+        println("======================================")
+        println("|      SVD Plus Plus                 |")
+        println("======================================")
+        println(s"Input file $fname")
+
+        // get data here https://grouplens.org/datasets/movielens/
+
+        val sc = new SparkContext(conf.setAppName(s"SVDPlusPlus(${app_name}_$fname)"))
+
+        val edges = sc.textFile(getClass.getResource(fname).getFile).map { line =>
+          val fields = line.split("[\\s\t]+")
+          Edge(fields(0).toLong, fields(1).toLong, fields(2).toDouble)
+        }
+        val svd_conf = new SVDPlusPlus.Conf(10, 5, 0.0, 5.0, 0.007, 0.007, 0.005, 0.015) // 5 iterations
+        val (graph, _) = SVDPlusPlus.run(edges, svd_conf)
+        sc.stop()
+
       case _ =>
         println("Invalid task type.")
     }
   }
 }
-// scalastyle:on println
+// scalastyle:on

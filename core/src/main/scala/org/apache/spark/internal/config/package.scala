@@ -369,10 +369,55 @@ package object config {
       "| 1 : no cache " +
       "| 2 : cache all " +
       "| 3 : custom implementation " +
-      "| 4: newer custom implementation")
+      "| 4 : newer custom implementation")
     .version("Dat version")
     .intConf
     .createWithDefault(0)
+
+  private[spark] val CUSTOM_REPLACEMENT_POLICY =
+    ConfigBuilder("spark.memory.useCustomReplacementPolicy")
+    .doc("true : New replacement policy" +
+      "| false : LRU Policy")
+      .version("Dat version")
+      .booleanConf
+      .createWithDefault(true)
+
+  private[spark] val AUTO_RDD_CACHING =
+    ConfigBuilder("spark.memory.useAutoRDDCaching")
+    .doc("true : auto rdd caching" +
+      "| false : user-enforced rdd caching")
+      .version("Dat version")
+      .booleanConf
+      .createWithDefault(true)
+
+  private[spark] val VANILLA_W_CUSTOM_COMPUTATION =
+    ConfigBuilder("spark.memory.vanillaWCustomComputation")
+    .doc("true : do custom computation but still enforce vanilla caching" +
+      "Used to measure the computation overhead of CustomCache")
+      .version("Dat version")
+      .booleanConf
+      .createWithDefault(false)
+
+  private[spark] val DISABLE_CACHING_APIS =
+    ConfigBuilder("spark.memory.disableCachingAPIs")
+    .doc("true : disable the call of cache()/persist()")
+    .version("Dat version")
+    .booleanConf
+    .createWithDefault(false)
+
+  private[spark] val MIN_CHILDREN_THRESHOLD =
+    ConfigBuilder("spark.memory.minChildrenThreshold")
+    .doc("Min number of children in DAG for an RDD to be cached")
+    .version("Dat version")
+    .intConf
+    .createWithDefault(3)
+
+  private[spark] val PAST_APPEARANCE_RATE_THRESHOLD =
+    ConfigBuilder("spark.memory.pastAppearanceRateThreshold")
+    .doc("Min rate of occurance in the past for an rdd to be cached")
+    .version("Dat version")
+    .doubleConf
+    .createWithDefault(0.5)
 
   private[spark] val STORAGE_UNROLL_MEMORY_THRESHOLD =
     ConfigBuilder("spark.storage.unrollMemoryThreshold")

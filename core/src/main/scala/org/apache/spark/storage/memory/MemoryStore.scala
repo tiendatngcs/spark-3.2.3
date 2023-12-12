@@ -32,10 +32,13 @@ import com.google.common.io.ByteStreams
 import org.apache.spark.{SparkConf, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.{
+  AUTO_RDD_CACHING,
   CACHE_MODE,
+  CUSTOM_REPLACEMENT_POLICY,
   STORAGE_UNROLL_MEMORY_THRESHOLD,
   UNROLL_MEMORY_CHECK_PERIOD,
-  UNROLL_MEMORY_GROWTH_FACTOR
+  UNROLL_MEMORY_GROWTH_FACTOR,
+  VANILLA_W_CUSTOM_COMPUTATION
 }
 import org.apache.spark.memory.{MemoryManager, MemoryMode}
 import org.apache.spark.serializer.{SerializationStream, SerializerManager}
@@ -97,6 +100,12 @@ private[spark] class MemoryStore(
     blockEvictionHandler: BlockEvictionHandler
 ) extends Logging {
   private val cacheMode: Int = conf.get(CACHE_MODE)
+  // these are only used when cacheMode == 4
+  private val autoRDDCaching: Boolean = conf.get(AUTO_RDD_CACHING)
+  private val useCustomReplacementPolicy: Boolean =
+    conf.get(CUSTOM_REPLACEMENT_POLICY)
+  private val vanillaWCustomComputation: Boolean =
+    conf.get(VANILLA_W_CUSTOM_COMPUTATION)
 
   // Note: all changes to memory allocations, notably putting blocks, evicting blocks, and
   // acquiring or releasing unroll memory, must be synchronized on `memoryManager`!
@@ -381,7 +390,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       }
       // Modification: Add Block to name map, for ease of updating
       // We only want RDD blocks
-      if (cacheMode == 4) {
+      if ((cacheMode == 4 && useCustomReplacementPolicy) || vanillaWCustomComputation) {
         getRddSignature(blockId).map(signature => blockIds.synchronized {
           blockIds.put(signature, blockId)
         })
@@ -521,7 +530,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         }
         // Modification: Add Block to name map, for ease of updating
         // We only want RDD blocks
-        if (cacheMode == 4) {
+        if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
           getRddSignature(blockId).map(signature => blockIds.synchronized {
             blockIds.put(signature, blockId)
           })
@@ -708,7 +717,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       )
       // Modification: Remove block from name map
       // We only want RDD blocks
-      if (cacheMode == 4) {
+      if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
         getRddSignature(blockId).map(signature => blockIds.synchronized {
           blockIds.remove(signature)
         })
@@ -789,6 +798,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       var freedMemory = 0L
       val rddToAdd = blockId.flatMap(getRddId)
       val selectedBlocks = new ArrayBuffer[BlockId]
+      val fakeSelectedBlocks = new ArrayBuffer[BlockId]
       def blockIsEvictable(blockId: BlockId, entry: MemoryEntry[_]): Boolean = {
         entry.memoryMode == memoryMode && (rddToAdd.isEmpty || rddToAdd != getRddId(
           blockId
@@ -799,7 +809,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       // can lead to exceptions.
       entries.synchronized {
           // Modification: Sort by least weight
-        if (cacheMode == 4) {
+        if (cacheMode == 4 && useCustomReplacementPolicy) {
           val iterator = blockIds.synchronized {
           val blockIter = blockIds.keysIterator
           for (key <- blockIter) {
@@ -864,6 +874,32 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
             }
           }
         } else {
+          if (vanillaWCustomComputation) {
+            var fakeFreedMemory = 0L
+            val iterator = blockIds.synchronized {
+            val blockIter = blockIds.keysIterator
+            for (key <- blockIter) {
+              updatePartitionWeight(key)
+            }
+            blockIds.toList.sortBy(_._2.weight).iterator
+            }
+            // Original:
+            // val iterator = entries.entrySet().iterator()
+            // End of Modification
+            while (freedMemory < space && iterator.hasNext) {
+              val pair = iterator.next()
+              // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
+              val blockId = pair._2
+              val entry = entries.get(blockId)
+              // End of Modification
+              if (blockIsEvictable(blockId, entry)) {
+                if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
+                  fakeSelectedBlocks += blockId
+                  fakeFreedMemory += entry.size
+                }
+              }
+            }
+          }
           val iterator = entries.entrySet().iterator()
           while (freedMemory < space && iterator.hasNext) {
             val pair = iterator.next()
@@ -884,7 +920,9 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
             }
           }
         }
-
+        logInfo(s"Cached entries before eviction: $entries.")
+        logInfo(s"Selected blocks: $selectedBlocks.")
+        logInfo(s"Amount to be freed: $freedMemory.")
       }
 
       def dropBlock[T](blockId: BlockId, entry: MemoryEntry[T]): Unit = {
@@ -928,6 +966,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
             }
             lastSuccessfulBlock = idx
           }
+          logInfo(s"Cached entries after eviction: $entries.")
           logInfo(
             s"After dropping ${selectedBlocks.size} blocks, " +
               s"free memory is ${Utils.bytesToString(maxMemory - blocksMemoryUsed)}"
@@ -946,7 +985,7 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         }
       } else {
         blockId.foreach { id =>
-          logInfo(s"Will not store $id")
+          logInfo(s"Will not store $id . Can free $freedMemory but asked for $space")
         }
         selectedBlocks.foreach { id =>
           blockInfoManager.unlock(id)

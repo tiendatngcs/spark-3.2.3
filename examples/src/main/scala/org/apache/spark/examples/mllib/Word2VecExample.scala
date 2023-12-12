@@ -21,7 +21,8 @@ package org.apache.spark.examples.mllib
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 // $example on$
-import org.apache.spark.mllib.feature.{Word2Vec, Word2VecModel}
+// import org.apache.spark.mllib.feature.{Word2Vec, Word2VecModel}
+import org.apache.spark.mllib.feature.Word2Vec
 // $example off$
 
 object Word2VecExample {
@@ -45,8 +46,8 @@ object Word2VecExample {
     }
 
     // Save and load model
-    model.save(sc, "myModelPath")
-    val sameModel = Word2VecModel.load(sc, "myModelPath")
+    // model.save(sc, "myModelPath")
+    // val sameModel = Word2VecModel.load(sc, "myModelPath")
     // $example off$
 
     sc.stop()

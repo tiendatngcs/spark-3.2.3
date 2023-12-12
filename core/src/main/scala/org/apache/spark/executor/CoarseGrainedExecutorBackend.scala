@@ -229,6 +229,7 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case StopExecutor =>
       stopping.set(true)
+      env.blockManager.logExeEndInfo()
       logInfo("Driver commanded a shutdown")
       // Cannot shutdown here because an ack may need to be sent back to the caller. So send
       // a message to self to actually do the shutdown.
@@ -308,13 +309,13 @@ private[spark] class CoarseGrainedExecutorBackend(
     }
   }
   // Modification: Implementation of RPC
-  override def recomputeAlert(rddSignature: String, time: Long): Unit = {
-    val msg = RecomputeAlert(rddSignature, time)
-    driver match {
-      case Some(driverRef) => driverRef.send(msg)
-      case None => logWarning(s"Drop $msg because has not yet connected to driver")
-    }
-  }
+  // override def recomputeAlert(rddSignature: String, time: Long): Unit = {
+  //   val msg = RecomputeAlert(rddSignature, time)
+  //   driver match {
+  //     case Some(driverRef) => driverRef.send(msg)
+  //     case None => logWarning(s"Drop $msg because has not yet connected to driver")
+  //   }
+  // }
   // End of Modification
   /**
    * This function can be overloaded by other child classes to handle executor exits differently.

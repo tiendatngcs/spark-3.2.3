@@ -247,6 +247,10 @@ private[spark] class BlockManager(
   private val peerFetchLock = new Object
   private var lastPeerFetchTimeNs = 0L
 
+  var localHitCount = 0
+  var remoteHitCount = 0
+  var missCount = 0
+
   private var blockReplicationPolicy: BlockReplicationPolicy = _
 
   // visible for test
@@ -1231,13 +1235,16 @@ private[spark] class BlockManager(
     val local = getLocalValues(blockId)
     if (local.isDefined) {
       logInfo(s"Found block $blockId locally")
+      if (blockId.isRDD) localHitCount += 1
       return local
     }
     val remote = getRemoteValues[T](blockId)
     if (remote.isDefined) {
       logInfo(s"Found block $blockId remotely")
+      if (blockId.isRDD) remoteHitCount += 1
       return remote
     }
+    if (blockId.isRDD) missCount += 1
     None
   }
 
@@ -1419,6 +1426,11 @@ private[spark] class BlockManager(
       exceptionWasThrown = false
       if (res.isEmpty) {
         // the block was successfully stored
+        if (level == StorageLevel.MEMORY_ONLY) {
+          logInfo(s"Successfully store block $blockId to memory")
+        } else if (level == StorageLevel.MEMORY_AND_DISK || level == StorageLevel.MEMORY_ONLY_SER) {
+          logInfo(s"Store block $blockId but not to MEMORY_ONLY")
+        }
         if (keepReadLock) {
           blockInfoManager.downgradeLock(blockId)
         } else {
@@ -1986,6 +1998,12 @@ private[spark] class BlockManager(
       taskContext: Option[TaskContext] = None): Unit = {
     releaseLock(blockId, taskContext)
     data.dispose()
+  }
+
+  def logExeEndInfo(): Unit = {
+    // scalastyle:off
+    logInfo(s"RDD cache info: Local hit count: $localHitCount | Remote hit count: $remoteHitCount | Miss count: $missCount")
+    // scalastyle:on
   }
 
   def stop(): Unit = {
