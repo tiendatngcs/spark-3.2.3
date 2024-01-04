@@ -42,7 +42,9 @@ object KMeansExampleNoCache {
     // Load and parse the data
     // val data = sc.textFile("data/mllib/kmeans_data.txt")
     val data = sc.textFile(args(0))
-    val parsedData = data.map(s => Vectors.dense(s.split("[\\s\t]+").map(_.toDouble)))
+    val parsedData = data
+      .filter(_.nonEmpty)
+      .map(s => Vectors.dense(s.split("\\s+").map(_.toDouble)))
 
     // Cluster the data into two classes using KMeans
     val numClusters = args(1).toInt

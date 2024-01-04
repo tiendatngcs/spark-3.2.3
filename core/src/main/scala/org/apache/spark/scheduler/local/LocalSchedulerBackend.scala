@@ -37,7 +37,7 @@ private case class ReviveOffers()
 private case class StatusUpdate(taskId: Long, state: TaskState, serializedData: ByteBuffer)
 
 // Modification: Implementation of the alert class
-// private case class RecomputeAlert(rddSignature: String, time: Long)
+private case class RecomputeAlert(rddSignature: String, time: Long)
 // End of Modification
 
 private case class KillTask(taskId: Long, interruptThread: Boolean, reason: String)
@@ -84,8 +84,8 @@ private[spark] class LocalEndpoint(
         reviveOffers()
       }
     // Modification: Receive RPC
-    // case RecomputeAlert(rddSignature, time) =>
-    //   scheduler.recomputeAlert(rddSignature, time)
+    case RecomputeAlert(rddSignature, time) =>
+      scheduler.recomputeAlert(rddSignature, time)
     // End of Modification
     case KillTask(taskId, interruptThread, reason) =>
       executor.killTask(taskId, interruptThread, reason)
@@ -189,9 +189,9 @@ private[spark] class LocalSchedulerBackend(
   }
 
   // Modification: Implementation of RPC
-  // override def recomputeAlert(rddSignature: String, time: Long): Unit = {
-  //   localEndpoint.send(RecomputeAlert(rddSignature, time))
-  // }
+  override def recomputeAlert(rddSignature: String, time: Long): Unit = {
+    localEndpoint.send(RecomputeAlert(rddSignature, time))
+  }
   // End of Modification
 
   override def applicationId(): String = appId

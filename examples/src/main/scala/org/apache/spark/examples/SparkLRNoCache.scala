@@ -33,7 +33,7 @@ import org.apache.spark.sql.SparkSession
  * This is an example implementation for learning how to use Spark. For more conventional use,
  * please refer to org.apache.spark.ml.classification.LogisticRegression.
  */
-object SparkLR {
+object SparkLRNoCache {
   var N = 10000  // Number of data points
   var D = 10   // Number of dimensions
   val R = 0.7  // Scaling factor
@@ -64,7 +64,7 @@ object SparkLR {
     showWarning()
 
     if (args.length != 1) {
-      println("SparkLR <N> <D> <NumIter> <AppName>")
+      println("SparkLR <> <AppName>")
     }
 
     val spark = SparkSession
@@ -78,7 +78,7 @@ object SparkLR {
     println(s"N = ${N}; D = ${D}; ITERATIONS = ${ITERATIONS}")
 
     val numSlices = if (args.length > 0) args(0).toInt else 2
-    val points = spark.sparkContext.parallelize(generateData, numSlices).cache()
+    val points = spark.sparkContext.parallelize(generateData, numSlices)
 
     // Initialize w to a random value
     val w = DenseVector.fill(D) {2 * rand.nextDouble - 1}

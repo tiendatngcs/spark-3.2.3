@@ -26,7 +26,7 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.util.MLUtils
 // $example off$
 
-object SVMWithSGDExample {
+object SVMWithSGDExampleNoCache {
 
   def main(args: Array[String]): Unit = {
     if (args.length != 3) {
@@ -43,7 +43,7 @@ object SVMWithSGDExample {
 
     // Split data into training (60%) and test (40%).
     val splits = data.randomSplit(Array(0.6, 0.4), seed = 11L)
-    val training = splits(0).cache()
+    val training = splits(0)
     val test = splits(1)
 
     // Run training algorithm to build the model

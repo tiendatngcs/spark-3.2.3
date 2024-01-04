@@ -34,7 +34,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.{
   AUTO_RDD_CACHING,
   CACHE_MODE,
-  CUSTOM_REPLACEMENT_POLICY,
+  REPLACEMENT_POLICY,
   STORAGE_UNROLL_MEMORY_THRESHOLD,
   UNROLL_MEMORY_CHECK_PERIOD,
   UNROLL_MEMORY_GROWTH_FACTOR,
@@ -102,8 +102,9 @@ private[spark] class MemoryStore(
   private val cacheMode: Int = conf.get(CACHE_MODE)
   // these are only used when cacheMode == 4
   private val autoRDDCaching: Boolean = conf.get(AUTO_RDD_CACHING)
-  private val useCustomReplacementPolicy: Boolean =
-    conf.get(CUSTOM_REPLACEMENT_POLICY)
+  // private val useCustomReplacementPolicy: Boolean =
+  //   conf.get(CUSTOM_REPLACEMENT_POLICY)
+  val replacementPolicy: Integer = conf.get(REPLACEMENT_POLICY)
   private val vanillaWCustomComputation: Boolean =
     conf.get(VANILLA_W_CUSTOM_COMPUTATION)
 
@@ -125,6 +126,49 @@ private[spark] class MemoryStore(
   private var refDistance = new mutable.HashMap[Int, Seq[Int]]()
   private val keyToBlockId = new mutable.HashMap[String, BlockId]()
   // instrument code end
+
+  // Modification: added Reference Count and BlockId refcount
+  private val referenceCount = new mutable.HashMap[Int, Int]()
+  private val blockIdToRC = new mutable.HashMap[BlockId, Int]()
+
+  def updateAndAddBlockId(blockId: BlockId): Unit = blockIdToRC.synchronized {
+    val rddId = getRddId(blockId)
+    rddId match {
+      case Some(id) =>
+        referenceCount.synchronized {
+          blockIdToRC.put(blockId, referenceCount.getOrElse(id, 0))
+        }
+      case None =>
+        // Not an RDD
+    }
+  }
+
+  def decrementReferenceCount(rddId: Int, partition: Int): Unit = blockIdToRC.synchronized {
+    val blockId = RDDBlockId(rddId, partition)
+    if (blockIdToRC.getOrElse(blockId, 0) > 0) {
+      blockIdToRC(blockId) -= 1
+    }
+  }
+
+  def updateReferenceCount(
+    lineage: mutable.HashMap[Int, mutable.HashSet[Int]]): Unit = referenceCount.synchronized {
+    referenceCount.keys.foreach(id => referenceCount(id) = 0)
+    for (tuple <- lineage.iterator) {
+      referenceCount.put(tuple._1, tuple._2.size)
+    }
+    blockIdToRC.synchronized {
+      for (blockId <- blockIdToRC.keys.iterator) {
+        val rddId = getRddId(blockId)
+        rddId match {
+          case Some(id) =>
+            blockIdToRC.put(blockId, referenceCount.getOrElse(id, 0))
+          case None =>
+            // Not an RDD
+        }
+      }
+    }
+  }
+  // End of Modification
 
   // A mapping from taskAttemptId to amount of memory used for unrolling a block (in bytes)
   // All accesses of this map are assumed to have manually synchronized on `memoryManager`
@@ -386,15 +430,19 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         if (cacheMode == 3) {
           putOrUpdateBlock(blockId.name, blockId)
         }
+        if (replacementPolicy == 1) {
+          // LRC
+          updateAndAddBlockId(blockId)
+        }
         // instrument code end
       }
       // Modification: Add Block to name map, for ease of updating
       // We only want RDD blocks
-      if ((cacheMode == 4 && useCustomReplacementPolicy) || vanillaWCustomComputation) {
-        getRddSignature(blockId).map(signature => blockIds.synchronized {
-          blockIds.put(signature, blockId)
-        })
-      }
+      // if ((cacheMode == 4 && useCustomReplacementPolicy) || vanillaWCustomComputation) {
+      //   getRddSignature(blockId).map(signature => blockIds.synchronized {
+      //     blockIds.put(signature, blockId)
+      //   })
+      // }
       // End of Modification
       logInfo(
         "Block %s stored as bytes in memory (estimated size %s, free %s)"
@@ -527,14 +575,18 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
 
         entries.synchronized {
           entries.put(blockId, entry)
+          if (replacementPolicy == 1) {
+            // LRC
+            updateAndAddBlockId(blockId)
+          }
         }
         // Modification: Add Block to name map, for ease of updating
         // We only want RDD blocks
-        if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
-          getRddSignature(blockId).map(signature => blockIds.synchronized {
-            blockIds.put(signature, blockId)
-          })
-        }
+        // if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
+        //   getRddSignature(blockId).map(signature => blockIds.synchronized {
+        //     blockIds.put(signature, blockId)
+        //   })
+        // }
         // End of Modification
         logInfo(
           "Block %s stored as values in memory (estimated size %s, free %s)"
@@ -715,16 +767,23 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         s"Block $blockId of size ${entry.size} dropped " +
           s"from memory (free ${maxMemory - blocksMemoryUsed})"
       )
+      if (replacementPolicy == 1) {
+        // LRC
+        val _ = blockIdToRC.synchronized {
+          blockIdToRC.remove(blockId)
+        }
+      }
       // Modification: Remove block from name map
       // We only want RDD blocks
-      if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
-        getRddSignature(blockId).map(signature => blockIds.synchronized {
-          blockIds.remove(signature)
-        })
-      }
+      // if (cacheMode == 4 && useCustomReplacementPolicy || vanillaWCustomComputation) {
+      //   getRddSignature(blockId).map(signature => blockIds.synchronized {
+      //     blockIds.remove(signature)
+      //   })
+      // }
       // End of Modification
       // instrument code
       if (cacheMode == 3) {
+        assert(false)
         if (blockId.name.split("_")(0) == "rdd") {
           keyToBlockId.synchronized {
             keyToBlockId.remove(
@@ -809,97 +868,136 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       // can lead to exceptions.
       entries.synchronized {
           // Modification: Sort by least weight
-        if (cacheMode == 4 && useCustomReplacementPolicy) {
-          val iterator = blockIds.synchronized {
-          val blockIter = blockIds.keysIterator
-          for (key <- blockIter) {
-            updatePartitionWeight(key)
-          }
-          blockIds.toList.sortBy(_._2.weight).iterator
-          }
-          // Original:
-          // val iterator = entries.entrySet().iterator()
-          // End of Modification
-          while (freedMemory < space && iterator.hasNext) {
-            val pair = iterator.next()
-            // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
-            val blockId = pair._2
-            val entry = entries.get(blockId)
-            // End of Modification
-            if (blockIsEvictable(blockId, entry)) {
-              // We don't want to evict blocks which are currently being read, so we need to obtain
-              // an exclusive write lock on blocks which are candidates for eviction. We perform a
-              // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
-              if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
-                selectedBlocks += blockId
-                freedMemory += entry.size
-              }
-            }
-          }
-        }
-        // End of Modification
-        else if (cacheMode == 3) {
-          // instrument code
-          // val iterator = entries.entrySet().iterator()
-          calculatePriority(stageId)
-          val iterator = keyToBlockId.toList.sortBy(_._2.priority).iterator
-          // instrument code end
-          while (freedMemory < space && iterator.hasNext) {
-            // instrument code
-            // val pair = iterator.next()
-            // val blockId = pair.getKey
-            // val entry = pair.getValue
-            val pair = iterator.next()
-            val blockId = pair._2
-            val entry = entries.get(blockId)
-            // instrument code end
-            if (blockIsEvictable(blockId, entry)) {
-              // We don't want to evict blocks which are currently being read, so we need to obtain
-              // an exclusive write lock on blocks which are candidates for eviction. We perform a
-              // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
-              if (
-                blockInfoManager
-                  .lockForWriting(blockId, blocking = false)
-                  .isDefined
-              ) {
-                selectedBlocks += blockId
-                freedMemory += entry.size
-                // scalastyle:off println
-                print(s"Evicting block ${blockId.name}")
-                print(s" of priority ${blockId.priority}")
-                print(s" size ${entry.size}")
-                println()
-                // scalastyle:on println
-              }
-            }
-          }
-        } else {
-          if (vanillaWCustomComputation) {
-            var fakeFreedMemory = 0L
-            val iterator = blockIds.synchronized {
-            val blockIter = blockIds.keysIterator
-            for (key <- blockIter) {
-              updatePartitionWeight(key)
-            }
-            blockIds.toList.sortBy(_._2.weight).iterator
-            }
-            // Original:
+    // if (cacheMode == 4 && useCustomReplacementPolicy) {
+    //   val iterator = blockIds.synchronized {
+    //   val blockIter = blockIds.keysIterator
+    //   for (key <- blockIter) {
+    //     updatePartitionWeight(key)
+    //   }
+    //   blockIds.toList.sortBy(_._2.weight).iterator
+    //   }
+    //   // Original:
+    //   // val iterator = entries.entrySet().iterator()
+    //   // End of Modification
+    //   while (freedMemory < space && iterator.hasNext) {
+    //     val pair = iterator.next()
+    //     // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
+    //     val blockId = pair._2
+    //     val entry = entries.get(blockId)
+    //     // End of Modification
+    //     if (blockIsEvictable(blockId, entry)) {
+    //       // We don't want to evict blocks which are currently being read, so we need to obtain
+    //       // an exclusive write lock on blocks which are candidates for eviction. We perform a
+    //       // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
+    //       if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
+    //         selectedBlocks += blockId
+    //         freedMemory += entry.size
+    //       }
+    //     }
+    //   }
+    // }
+    // // End of Modification
+    // else if (cacheMode == 3) {
+    //   assert(false)
+    //   // instrument code
+    //   // val iterator = entries.entrySet().iterator()
+    //   calculatePriority(stageId)
+    //   val iterator = keyToBlockId.toList.sortBy(_._2.priority).iterator
+    //   // instrument code end
+    //   while (freedMemory < space && iterator.hasNext) {
+    //     // instrument code
+    //     // val pair = iterator.next()
+    //     // val blockId = pair.getKey
+    //     // val entry = pair.getValue
+    //     val pair = iterator.next()
+    //     val blockId = pair._2
+    //     val entry = entries.get(blockId)
+    //     // instrument code end
+    //     if (blockIsEvictable(blockId, entry)) {
+    //       // We don't want to evict blocks which are currently being read, so we need to obtain
+    //       // an exclusive write lock on blocks which are candidates for eviction. We perform a
+    //       // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
+    //       if (
+    //         blockInfoManager
+    //           .lockForWriting(blockId, blocking = false)
+    //           .isDefined
+    //       ) {
+    //         selectedBlocks += blockId
+    //         freedMemory += entry.size
+    //         // scalastyle:off println
+    //         // print(s"Evicting block ${blockId.name}")
+    //         // print(s" of priority ${blockId.priority}")
+    //         // print(s" size ${entry.size}")
+    //         // println()
+    //         // scalastyle:on println
+    //       }
+    //     }
+    //   }
+    // } else if (cacheMode == 5) {
+    //   val iterator = keyToBlockId.toList.sortBy(_._2.weight).iterator
+    //   while (freedMemory < space && iterator.hasNext) {
+    //     // modification code
+    //     val pair = iterator.next()
+    //     val partitionId = pair._1
+    //     val blockId = pair._2
+    //     val entry = entries.get(blockId)
+    //     if (blockIsEvictable(blockId, entry)) {
+    //       if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
+    //         selectedBlocks += blockId
+    //         freedMemory += entry.size
+    //       }
+    //     }
+    //     // modification code end
+    //   }
+        if (replacementPolicy == 1) {
+          // LRC
+          blockIdToRC.synchronized {
+            val iterator = blockIdToRC.toList.sortBy(_._2).iterator
             // val iterator = entries.entrySet().iterator()
-            // End of Modification
             while (freedMemory < space && iterator.hasNext) {
               val pair = iterator.next()
-              // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
-              val blockId = pair._2
+              val blockId = pair._1
               val entry = entries.get(blockId)
-              // End of Modification
+              // val blockId = pair.getKey
+              // val entry = pair.getValue
               if (blockIsEvictable(blockId, entry)) {
+            // We don't want to evict blocks which are currently being read, so we need to obtain
+            // an exclusive write lock on blocks which are candidates for eviction. We perform a
+            // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
                 if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
-                  fakeSelectedBlocks += blockId
-                  fakeFreedMemory += entry.size
+                  selectedBlocks += blockId
+                  freedMemory += entry.size
                 }
               }
             }
           }
+        } else {
+      // if (vanillaWCustomComputation) {
+      //   var fakeFreedMemory = 0L
+      //   val iterator = blockIds.synchronized {
+      //   val blockIter = blockIds.keysIterator
+      //   for (key <- blockIter) {
+      //     updatePartitionWeight(key)
+      //   }
+      //   blockIds.toList.sortBy(_._2.weight).iterator
+      //   }
+      //   // Original:
+      //   // val iterator = entries.entrySet().iterator()
+      //   // End of Modification
+      //   while (freedMemory < space && iterator.hasNext) {
+      //     val pair = iterator.next()
+      //     // Modification: Changed to use Scala Syntax from Java as we now use a Scala iterator
+      //     val blockId = pair._2
+      //     val entry = entries.get(blockId)
+      //     // End of Modification
+      //     if (blockIsEvictable(blockId, entry)) {
+      //       if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
+      //         fakeSelectedBlocks += blockId
+      //         fakeFreedMemory += entry.size
+      //       }
+      //     }
+      //   }
+      // }
           val iterator = entries.entrySet().iterator()
           while (freedMemory < space && iterator.hasNext) {
             val pair = iterator.next()
@@ -920,9 +1018,9 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
             }
           }
         }
-        logInfo(s"Cached entries before eviction: $entries.")
-        logInfo(s"Selected blocks: $selectedBlocks.")
-        logInfo(s"Amount to be freed: $freedMemory.")
+        // logInfo(s"Cached entries before eviction: $entries.")
+        // logInfo(s"Selected blocks: $selectedBlocks.")
+        // logInfo(s"Amount to be freed: $freedMemory.")
       }
 
       def dropBlock[T](blockId: BlockId, entry: MemoryEntry[T]): Unit = {
@@ -966,11 +1064,11 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
             }
             lastSuccessfulBlock = idx
           }
-          logInfo(s"Cached entries after eviction: $entries.")
-          logInfo(
-            s"After dropping ${selectedBlocks.size} blocks, " +
-              s"free memory is ${Utils.bytesToString(maxMemory - blocksMemoryUsed)}"
-          )
+          // logInfo(s"Cached entries after eviction: $entries.")
+          // logInfo(
+          //   s"After dropping ${selectedBlocks.size} blocks, " +
+          //     s"free memory is ${Utils.bytesToString(maxMemory - blocksMemoryUsed)}"
+          // )
           freedMemory
         } finally {
           // like BlockManager.doPut, we use a finally rather than a catch to avoid having to deal

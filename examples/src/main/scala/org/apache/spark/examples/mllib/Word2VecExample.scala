@@ -28,12 +28,15 @@ import org.apache.spark.mllib.feature.Word2Vec
 object Word2VecExample {
 
   def main(args: Array[String]): Unit = {
-
-    val conf = new SparkConf().setAppName("Word2VecExample")
+    if (args.length != 2) {
+      println("Word2VecExample <input> <appName>")
+    }
+    val conf = new SparkConf().setAppName(args(args.length-1))
     val sc = new SparkContext(conf)
 
     // $example on$
-    val input = sc.textFile("data/mllib/sample_lda_data.txt").map(line => line.split(" ").toSeq)
+    // val input = sc.textFile("data/mllib/sample_lda_data.txt").map(line => line.split(" ").toSeq)
+    val input = sc.textFile(args(0)).map(line => line.split(" ").toSeq)
 
     val word2vec = new Word2Vec()
 

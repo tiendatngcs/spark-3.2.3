@@ -672,9 +672,10 @@ private[spark] class Executor(
         plugins.foreach(_.onTaskSucceeded())
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
         // Modification: Send RPC to the Scheduler, its since its easier to parse in driver log
-        // if (recomputed) {
-        //   execBackend.recomputeAlert(rddSignature, task.metrics.executorCpuTime)
-        // }
+        if (recomputed) {
+          // execBackend.recomputeAlert(rddSignature, task.metrics.executorCpuTime)
+        }
+        // logInfo(s"RDD ${rddSignature} is accessed in ${task.metrics.executorCpuTime}ns")
         // End of Modification
       } catch {
         case t: TaskKilledException =>

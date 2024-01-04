@@ -34,6 +34,10 @@ import org.apache.spark.sql.SparkSession
 object GeneralizedLinearRegressionExample {
 
   def main(args: Array[String]): Unit = {
+    if (args.length < 2) {
+      println("GeneralizedLinearRegressionExample <input> <maxIter> <appname>")
+      System.exit(1)
+    }
     val spark = SparkSession
       .builder
       .appName(args(args.length-1))
@@ -41,13 +45,20 @@ object GeneralizedLinearRegressionExample {
 
     // $example on$
     // Load training data
+    // val dataset = spark.read.format("libsvm")
+    //   .load("data/mllib/sample_linear_regression_data.txt")
     val dataset = spark.read.format("libsvm")
-      .load("data/mllib/sample_linear_regression_data.txt")
+      .load(args(0))
 
+    // val glr = new GeneralizedLinearRegression()
+    //   .setFamily("gaussian")
+    //   .setLink("identity")
+    //   .setMaxIter(10)
+    //   .setRegParam(0.3)
     val glr = new GeneralizedLinearRegression()
       .setFamily("gaussian")
       .setLink("identity")
-      .setMaxIter(10)
+      .setMaxIter(args(1).toInt)
       .setRegParam(0.3)
 
     // Fit the model

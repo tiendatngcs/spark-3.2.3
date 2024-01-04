@@ -374,13 +374,20 @@ package object config {
     .intConf
     .createWithDefault(0)
 
-  private[spark] val CUSTOM_REPLACEMENT_POLICY =
-    ConfigBuilder("spark.memory.useCustomReplacementPolicy")
-    .doc("true : New replacement policy" +
-      "| false : LRU Policy")
-      .version("Dat version")
-      .booleanConf
-      .createWithDefault(true)
+  // private[spark] val CUSTOM_REPLACEMENT_POLICY =
+  //   ConfigBuilder("spark.memory.useCustomReplacementPolicy")
+  //   .doc("true : New replacement policy" +
+  //     "| false : LRU Policy")
+  //     .version("Dat version")
+  //     .booleanConf
+  //     .createWithDefault(true)
+
+  private[spark] val REPLACEMENT_POLICY =
+    ConfigBuilder("spark.memory.replacementPolicy")
+    .doc("0:LRU 1:LRC 2:LPW")
+    .version("Dat version")
+    .intConf
+    .createWithDefault(0)
 
   private[spark] val AUTO_RDD_CACHING =
     ConfigBuilder("spark.memory.useAutoRDDCaching")
@@ -410,7 +417,7 @@ package object config {
     .doc("Min number of children in DAG for an RDD to be cached")
     .version("Dat version")
     .intConf
-    .createWithDefault(3)
+    .createWithDefault(2)
 
   private[spark] val PAST_APPEARANCE_RATE_THRESHOLD =
     ConfigBuilder("spark.memory.pastAppearanceRateThreshold")
@@ -418,6 +425,20 @@ package object config {
     .version("Dat version")
     .doubleConf
     .createWithDefault(0.5)
+
+  private[spark] val CACHE_RESULT_RDD =
+    ConfigBuilder("spark.memory.cacheResultRDD")
+    .doc("Automatically caching the result RDD of each job")
+    .version("Dat Version")
+    .booleanConf
+    .createWithDefault(true)
+
+  private[spark] val CHAINED_REUSE_RATE_THRESHOLD =
+    ConfigBuilder("spark.memory.chainedReuseRateThreshold")
+    .doc("to trigger result RDD caching, number of chained reuse must be larger than this val")
+    .version("Dat version")
+    .doubleConf
+    .createWithDefault(0.6)
 
   private[spark] val STORAGE_UNROLL_MEMORY_THRESHOLD =
     ConfigBuilder("spark.storage.unrollMemoryThreshold")

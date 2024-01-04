@@ -54,6 +54,12 @@ class BlockManagerStorageEndpoint(
         blockManager.memoryStore.updateAfterJobSuccess(jobId)
         true
       }
+
+    case ReferenceCount(lineage) =>
+      doAsync[Boolean]("Updating Reference Count", context) {
+        blockManager.memoryStore.updateReferenceCount(lineage)
+        true
+      }
     // End of Modification
     case RemoveBlock(blockId) =>
       doAsync[Boolean]("removing block " + blockId, context) {

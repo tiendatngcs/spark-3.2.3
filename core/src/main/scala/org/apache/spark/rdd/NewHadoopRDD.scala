@@ -337,6 +337,17 @@ class NewHadoopRDD[K, V](
     super.persist(storageLevel)
   }
 
+  // Modification starts
+  override def custom_persist(storageLevel: StorageLevel): this.type = {
+    if (storageLevel.deserialized) {
+      logWarning("Caching NewHadoopRDDs as deserialized objects usually leads to undesired" +
+        " behavior because Hadoop's RecordReader reuses the same Writable object for all records." +
+        " Use a map transformation to make copies of the records.")
+    }
+    super.custom_persist(storageLevel)
+  }
+  // Modification ends
+
 }
 
 private[spark] object NewHadoopRDD {

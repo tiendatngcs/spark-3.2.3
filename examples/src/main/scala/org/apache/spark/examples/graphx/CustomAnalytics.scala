@@ -200,8 +200,8 @@ object CustomAnalytics {
 
         val sc = new SparkContext(conf.setAppName(s"SVDPlusPlus(${app_name}_$fname)"))
 
-        val edges = sc.textFile(getClass.getResource(fname).getFile).map { line =>
-          val fields = line.split("[\\s\t]+")
+        val edges = sc.textFile(fname).map { line =>
+          val fields = line.split(",")
           Edge(fields(0).toLong, fields(1).toLong, fields(2).toDouble)
         }
         val svd_conf = new SVDPlusPlus.Conf(10, 5, 0.0, 5.0, 0.007, 0.007, 0.005, 0.015) // 5 iterations

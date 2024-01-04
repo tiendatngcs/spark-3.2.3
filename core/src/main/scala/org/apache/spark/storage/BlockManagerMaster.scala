@@ -166,6 +166,11 @@ class BlockManagerMaster(
   def broadcastRefDistance(refDistance: HashMap[Int, Seq[Int]]): Unit = {
     driverEndpoint.askSync[Boolean](RefDistanceBroadcast(refDistance))
   }
+
+  // LRC
+  def broadcastReferenceData(lineage: HashMap[Int, HashSet[Int]]): Unit = {
+    driverEndpoint.askSync[Boolean](ReferenceCount(lineage))
+  }
   // instrument code end
 
   /**

@@ -178,6 +178,7 @@ object CustomAnalyticsNoCache {
         println("|      Strongly Connected Components |")
         println("======================================")
         println(s"Input file $fname")
+        println(s"numIter = ${numIter}")
 
         val sc = new SparkContext(conf.setAppName(s"StronglyConnectedComponents(${app_name}_$fname)"))
 
@@ -203,9 +204,11 @@ object CustomAnalyticsNoCache {
 
         val sc = new SparkContext(conf.setAppName(s"SVDPlusPlus(${app_name}_$fname)"))
 
-        val edges = sc.textFile(getClass.getResource(fname).getFile).map { line =>
-          val fields = line.split("[\\s\t]+")
-          Edge(fields(0).toLong, fields(1).toLong, fields(2).toDouble)
+        val edges = sc.textFile(fname).flatMap { line =>
+          if (line.length != 0) {
+            val fields = line.split(",")
+            Some(Edge(fields(0).toLong, fields(1).toLong, fields(2).toDouble))
+          } else None
         }
         val svd_conf = new SVDPlusPlus.Conf(10, 5, 0.0, 5.0, 0.007, 0.007, 0.005, 0.015) // 5 iterations
         val (graph, _) = SVDPlusPlus.run(edges, svd_conf)

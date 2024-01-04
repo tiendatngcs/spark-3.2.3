@@ -174,7 +174,6 @@ abstract class RDD[T: ClassTag](
     if (storageLevel != StorageLevel.NONE
         && newLevel != storageLevel
         && !allowOverride) {
-        // && conf.get(CACHE_MODE) != 2) {
       throw new UnsupportedOperationException(
         "Cannot change storage level of an RDD after it was already assigned a level %d %d %d"
         .format(storageLevel != StorageLevel.NONE, newLevel != storageLevel, !allowOverride))
@@ -207,6 +206,23 @@ abstract class RDD[T: ClassTag](
    * have a storage level set yet. Local checkpointing is an exception.
    */
   def persist(newLevel: StorageLevel): this.type = {
+    if (newLevel == StorageLevel.MEMORY_ONLY
+      && (conf.get(CACHE_MODE) == 1
+        || (conf.get(CACHE_MODE) == 4 && conf.get(DISABLE_CACHING_APIS)))) {
+        return this
+      }
+    if (isLocallyCheckpointed) {
+      // This means the user previously called localCheckpoint(), which should have already
+      // marked this RDD for persisting. Here we should override the old storage level with
+      // one that is explicitly requested by the user (after adapting it to use disk).
+      persist(LocalRDDCheckpointData.transformStorageLevel(newLevel), allowOverride = true)
+    } else {
+      persist(newLevel, allowOverride = false)
+    }
+  }
+
+  def custom_persist(newLevel: StorageLevel): this.type = {
+    // is meant to be called by our custom caching scheme
     if (isLocallyCheckpointed) {
       // This means the user previously called localCheckpoint(), which should have already
       // marked this RDD for persisting. Here we should override the old storage level with
@@ -222,15 +238,19 @@ abstract class RDD[T: ClassTag](
    */
   // def persist(): this.type = persist(StorageLevel.MEMORY_ONLY)
   def persist(): this.type = {
-    if ((conf.get(CACHE_MODE) == 0 && !conf.get(DISABLE_CACHING_APIS))
-        || conf.get(CACHE_MODE) == 2
-        || (conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))) {
-      // vanilla or cache all
-      persist(StorageLevel.MEMORY_ONLY)
-    } else {
-      // no cache
-      this
-    }
+    // if (conf.get(CACHE_MODE) != 4 && conf.get(DISABLE_CACHING_APIS)) {
+    //   return this
+    // }
+    // if ((conf.get(CACHE_MODE) == 0 && !conf.get(DISABLE_CACHING_APIS))
+    //     || conf.get(CACHE_MODE) == 2
+    //     || (conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))) {
+    //   // vanilla or cache all
+    //   persist(StorageLevel.MEMORY_ONLY)
+    // } else {
+    //   // no cache
+    //   this
+    // }
+    persist(StorageLevel.MEMORY_ONLY)
   }
 
   /**

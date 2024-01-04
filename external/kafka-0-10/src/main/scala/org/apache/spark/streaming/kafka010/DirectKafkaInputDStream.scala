@@ -82,6 +82,14 @@ private[spark] class DirectKafkaInputDStream[K, V](
     super.persist(newLevel)
   }
 
+  // Modification starts
+  // override def custom_persist(newLevel: StorageLevel): DStream[ConsumerRecord[K, V]] = {
+  //   logError("Kafka ConsumerRecord is not serializable. " +
+  //     "Use .map to extract fields before calling .custom_persist or .window")
+  //   super.custom_persist(newLevel)
+  // }
+  // Modification ends
+
   protected def getBrokers = {
     val c = consumer
     val result = new ju.HashMap[TopicPartition, String]()

@@ -837,9 +837,9 @@ private[spark] class TaskSchedulerImpl(
   }
 
   // Modification: Print Recomputation info
-  // def recomputeAlert(rddSignature: String, time: Long) {
-  //   logInfo(s"RDD ${rddSignature} was recomputed, it took ${time} nanoseconds")
-  // }
+  def recomputeAlert(rddSignature: String, time: Long) {
+    logInfo(s"RDD ${rddSignature} was recomputed, it took ${time} nanoseconds")
+  }
   // End of Modification
 
   /**

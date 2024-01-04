@@ -176,8 +176,8 @@ private[spark] class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl,
           }
         }
       // Modification: Receive RPC
-      // case RecomputeAlert(rddSignature, time) =>
-      //   scheduler.recomputeAlert(rddSignature, time)
+      case RecomputeAlert(rddSignature, time) =>
+        scheduler.recomputeAlert(rddSignature, time)
       // End of Modification
       case ReviveOffers =>
         makeOffers()

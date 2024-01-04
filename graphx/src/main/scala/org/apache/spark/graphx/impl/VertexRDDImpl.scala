@@ -58,6 +58,13 @@ class VertexRDDImpl[VD] private[graphx] (
     this
   }
 
+  // Modification starts
+  override def custom_persist(newLevel: StorageLevel): this.type = {
+    partitionsRDD.custom_persist(newLevel)
+    this
+  }
+  // Modification ends
+
   override def unpersist(blocking: Boolean = false): this.type = {
     partitionsRDD.unpersist(blocking)
     this

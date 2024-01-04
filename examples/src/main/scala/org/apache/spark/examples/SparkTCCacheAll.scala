@@ -76,7 +76,7 @@ object SparkTCCacheAll {
       nextCount = tc.count()
     } while (nextCount != oldCount)
 
-    println(s"TC has ${tc.count()} edges.")
+    // println(s"TC has ${tc.count()} edges.")
     spark.stop()
   }
 }

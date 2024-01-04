@@ -26,7 +26,7 @@ import org.apache.spark.sql.SparkSession
 /**
  * Transitive closure on a graph.
  */
-object SparkTC {
+object SparkTCNoCache {
   // val numEdges = 200
   // val numVertices = 100
   val rand = new Random(42)
@@ -54,7 +54,7 @@ object SparkTC {
       .appName(args(args.length-1))
       .getOrCreate()
     val slices = if (args.length > 0) args(0).toInt else 2
-    var tc = spark.sparkContext.parallelize(generateGraph(numVertices, numEdges), slices).cache()
+    var tc = spark.sparkContext.parallelize(generateGraph(numVertices, numEdges), slices)
 
     // Linear transitive closure: each round grows paths by one edge,
     // by joining the graph's edges with the already-discovered paths.
@@ -71,7 +71,7 @@ object SparkTC {
       oldCount = nextCount
       // Perform the join, obtaining an RDD of (y, (z, x)) pairs,
       // then project the result to obtain the new (x, z) paths.
-      tc = tc.union(tc.join(edges).map(x => (x._2._2, x._2._1))).distinct().cache()
+      tc = tc.union(tc.join(edges).map(x => (x._2._2, x._2._1))).distinct()
       nextCount = tc.count()
     } while (nextCount != oldCount)
 

@@ -33,7 +33,7 @@ import org.apache.spark.sql.SparkSession
  * This is an example implementation for learning how to use Spark. For more conventional use,
  * please refer to org.apache.spark.ml.classification.LogisticRegression.
  */
-object SparkLR {
+object SparkLRCacheAll {
   var N = 10000  // Number of data points
   var D = 10   // Number of dimensions
   val R = 0.7  // Scaling factor
@@ -64,7 +64,7 @@ object SparkLR {
     showWarning()
 
     if (args.length != 1) {
-      println("SparkLR <N> <D> <NumIter> <AppName>")
+      println("SparkLR <> <AppName>")
     }
 
     val spark = SparkSession
@@ -88,7 +88,7 @@ object SparkLR {
       println(s"On iteration $i")
       val gradient = points.map { p =>
         p.x * (1 / (1 + exp(-p.y * (w.dot(p.x)))) - 1) * p.y
-      }.reduce(_ + _)
+      }.cache().reduce(_ + _)
       w -= gradient
     }
 

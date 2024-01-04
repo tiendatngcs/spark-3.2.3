@@ -392,6 +392,15 @@ class HadoopRDD[K, V](
     super.persist(storageLevel)
   }
 
+  override def custom_persist(storageLevel: StorageLevel): this.type = {
+    if (storageLevel.deserialized) {
+      logWarning("Caching HadoopRDDs as deserialized objects usually leads to undesired" +
+        " behavior because Hadoop's RecordReader reuses the same Writable object for all records." +
+        " Use a map transformation to make copies of the records.")
+    }
+    super.custom_persist(storageLevel)
+  }
+
   def getConf: Configuration = getJobConf()
 }
 

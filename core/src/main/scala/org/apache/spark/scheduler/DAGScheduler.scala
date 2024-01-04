@@ -165,6 +165,11 @@ private[spark] class DAGScheduler(
     override def default(key: Int): HashSet[Int] = HashSet.empty[Int]
   }
   private[scheduler] val rddToPastOccurrence = new HashMap[Int, Int]
+
+  private[scheduler] val rddIdCachedPriorToProcessed: HashSet[Int] = HashSet.empty
+
+  private[scheduler] var previousResultRddId: Int = -1
+  private[scheduler] var numChainedReused: Int = 0
   // End of Modification
 
   // Stages we need to run whose parents aren't done
@@ -782,6 +787,7 @@ private[spark] class DAGScheduler(
 
   // Modification: RDD Preprocessing and caching
   private def preprocessRDD(rdd: RDD[_], jobId: Int): Unit = {
+    logInfo("Preprocessing new Job rdd")
     val startTime = System.nanoTime
     // We are manually maintaining a stack here to prevent StackOverflowError
     // caused by recursively visiting
@@ -801,23 +807,42 @@ private[spark] class DAGScheduler(
         val currentPastRef = rddToPastOccurrence.getOrElse(rdd.id, 0)
         rddToPastOccurrence.update(rdd.id, currentPastRef + 1)
         visitedRddId = visitedRddId :+ rdd.id
-      }
-      // Add current RDD to Mapping
-      rddIdToRdd.update(rdd.id, rdd)
-      for (dep <- rdd.dependencies) {
-        // Insert child into parent's children hashset
-        // The size of the hashset is the reference count,
-        // as a parent cannot have 2 of the same children.
-        // Thus, this will visit all the dependency RDDs
-        // and add them only once to the parent
-        rddIdToChildrenId.getOrElseUpdate(dep.rdd.id, new HashSet[Int]()) += rdd.id
-        waitingForVisit.prepend(dep.rdd)
+        if (rdd.getStorageLevel == StorageLevel.MEMORY_ONLY) {
+          rddIdCachedPriorToProcessed += rdd.id
+        }
+
+        // Add current RDD to Mapping
+        rddIdToRdd.update(rdd.id, rdd)
+        for (dep <- rdd.dependencies) {
+          // Insert child into parent's children hashset
+          // The size of the hashset is the reference count,
+          // as a parent cannot have 2 of the same children.
+          // Thus, this will visit all the dependency RDDs
+          // and add them only once to the parent
+          rddIdToChildrenId.getOrElseUpdate(dep.rdd.id, new HashSet[Int]()) += rdd.id
+          waitingForVisit.prepend(dep.rdd)
+        }
       }
     }
 
+    // while visiting, if an rdd is cached, we add it to the rddIdCachedPriorToProcessed set
+    val traversal_start = System.nanoTime
     while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.remove(0))
     }
+    logInfo(
+      "preprocessRDD DAG traversal for RDD %d took %f seconds"
+        .format(rdd.id, (System.nanoTime - traversal_start) / 1e9)
+    )
+
+    // then we cache all rdds in rddIdCachedPriorToProcessed
+    // rddIdCachedPriorToProcessed.foreach {
+    //   case (rddId) =>
+    //     rddIdToRdd.get(rddId) match {
+    //       case Some(rdd) => rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+    //       case None => None
+    //     }
+    // }
 
     allRddIdToChildrenId.synchronized {
       for (parent_relation <- rddIdToChildrenId) {
@@ -861,7 +886,7 @@ private[spark] class DAGScheduler(
     cachedRDDs.foreach { case (_, rddToCache) =>
       if (rddToCache.getStorageLevel == StorageLevel.NONE) {
         logInfo(s"Caching new rdd ${rddToCache.id}")
-        rddToCache.persist(StorageLevel.MEMORY_ONLY)
+        rddToCache.custom_persist(StorageLevel.MEMORY_ONLY)
       } else {
         logInfo(s"rdd ${rddToCache.id} already exist in cache or other storage levels")
       }
@@ -890,6 +915,8 @@ private[spark] class DAGScheduler(
     //     case None => false // Key not found
     //   }
     // }
+    var highRefRddId: List[Int] = List.empty[Int]
+
     if (jobId > 0) {
       // process ref appear in more that half of previous jobs
       val rddPastAppearanceRate: HashMap[Int, Float] =
@@ -911,7 +938,8 @@ private[spark] class DAGScheduler(
                   .toFloat
               ) {
                 logInfo(s"Caching new rdd due to high past ref rate ${rdd.id}")
-                rdd.persist(StorageLevel.MEMORY_ONLY)
+                highRefRddId = highRefRddId :+ rdd.id
+                rdd.custom_persist(StorageLevel.MEMORY_ONLY)
                 changed = true
               }
             case None => None
@@ -949,8 +977,10 @@ private[spark] class DAGScheduler(
                   assert(revisited.contains(childrenRddId))
                   // condition change when this children is not cached
                   // and not all of its children is cached
-                  if (childrenRdd.getStorageLevel != StorageLevel.MEMORY_ONLY
-                    && notAllChildrenAreCachedList.contains(childrenRddId) ) {
+                  if (
+                    childrenRdd.getStorageLevel != StorageLevel.MEMORY_ONLY
+                    && notAllChildrenAreCachedList.contains(childrenRddId)
+                  ) {
                     allChildrenAreCached = false
                   }
                 case None => assert(false) // should not reach here
@@ -973,16 +1003,82 @@ private[spark] class DAGScheduler(
       visitedRddId.sortBy(-_).foreach { case (rddId) =>
         rddIdToRdd.get(rddId) match {
           case Some(rdd) =>
-            if (!notAllChildrenAreCachedList.contains(rddId)
-              && rdd.getStorageLevel == StorageLevel.MEMORY_ONLY) {
+            if (
+              !notAllChildrenAreCachedList.contains(rddId)
+              && rdd.getStorageLevel == StorageLevel.MEMORY_ONLY
+              && highRefRddId.contains(rddId)
+              && !cachedRDDs.contains(rddId)
+            ) {
               rdd.unpersist()
             }
           case None => None
         }
-        
+      }
+      // we store the rdds that are cached
+      // visitedRddId.sortBy(-_).foreach { case (rddId) =>
+      //   rddIdToRdd.get(rddId) match {
+      //     case Some(rdd) =>
+      //       if (rdd.getStorageLevel == StorageLevel.MEMORY_ONLY) {
+      //         rddIdCachedPriorToProcessed += rdd.id
+      //       }
+      //     case None => None
+      //   }
+      // }
+
+      // we cache the resultRDD of this job
+      assert(previousResultRddId != -1)
+    }
+
+    val resultRddIsReused = visitedRddId.contains(previousResultRddId)
+    if (resultRddIsReused) {
+      numChainedReused = numChainedReused + 1
+    }
+    logInfo(s"numChainedReused = ${numChainedReused} jobId = ${jobId}")
+    logInfo(s"Chain reuse rate ${numChainedReused / (jobId + 1)}")
+    logInfo(s"CHAINED_REUSE_RATE_THRESHOLD = ${sc.conf.get(config.CHAINED_REUSE_RATE_THRESHOLD)}")
+    if (
+      sc.conf.get(config.CACHE_RESULT_RDD)
+      && numChainedReused.toDouble / (jobId + 1) > sc.conf.get(config.CHAINED_REUSE_RATE_THRESHOLD)
+    ) {
+      logInfo(s"Caching RDD ${rdd.id} due to highChained Reuse rate")
+      rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+    }
+    logInfo(s"Setting previousResultRddId to ${previousResultRddId}")
+    previousResultRddId = rdd.id
+    blockManagerMaster.broadcastReferenceData(jobId, rddIdToChildrenId)
+  }
+
+  private def CacheAllRDDs(rdd: RDD[_], jobId: Int): Unit = {
+    assert(sc.conf.get(config.CACHE_MODE) == 2)
+    val waitingForVisit = new ListBuffer[RDD[_]]
+    waitingForVisit += rdd
+    // A Lineage HashMap, with the children as a hashset
+    var visitedRddId: List[Int] = List.empty[Int]
+
+    def visit(rdd: RDD[_]): Unit = {
+      // add one to past ref if rdd is seen in this job
+      if (!visitedRddId.contains(rdd.id)) {
+        visitedRddId = visitedRddId :+ rdd.id
+        if (rdd.getStorageLevel == StorageLevel.NONE) {
+          rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+        }
+        // Add current RDD to Mapping
+        for (dep <- rdd.dependencies) {
+          // Insert child into parent's children hashset
+          // The size of the hashset is the reference count,
+          // as a parent cannot have 2 of the same children.
+          // Thus, this will visit all the dependency RDDs
+          // and add them only once to the parent
+          waitingForVisit.prepend(dep.rdd)
+        }
       }
     }
-    blockManagerMaster.broadcastReferenceData(jobId, rddIdToChildrenId)
+
+    // while visiting, if an rdd is cached, we add it to the rddIdCachedPriorToProcessed set
+    val traversal_start = System.nanoTime
+    while (waitingForVisit.nonEmpty) {
+      visit(waitingForVisit.remove(0))
+    }
   }
 
   // End of Modification
@@ -1131,6 +1227,7 @@ private[spark] class DAGScheduler(
       resultHandler: (Int, U) => Unit,
       properties: Properties
   ): JobWaiter[U] = {
+    logInfo("Submitting new job")
     // Check to make sure we are not launching a task on a partition that does not exist.
     val maxPartitions = rdd.partitions.length
     partitions.find(p => p >= maxPartitions || p < 0).foreach { p =>
@@ -1151,10 +1248,13 @@ private[spark] class DAGScheduler(
       eagerlyComputePartitionsForRddAndAncestors(rdd)
       // Modification: RDD preprocessing call
       preprocessRDD(rdd, jobId)
+      logInfo("Submitting new job path 1")
       // End of Modification
     } else {
+      logInfo("Submitting new job path 2a")
       eagerlyComputePartitionsForRddAndAncestors(rdd)
       if (sc.conf.get(config.VANILLA_W_CUSTOM_COMPUTATION)) {
+        logInfo("Submitting new job path 2b")
         preprocessRDD(rdd, jobId)
       }
     }
@@ -1576,7 +1676,7 @@ private[spark] class DAGScheduler(
   //           sc.refDistance(rdd.id) = Seq[Int]()
   //           sc.cachedRDDs = sc.cachedRDDs :+ rdd
   //           try {
-  //             rdd.persist(StorageLevel.MEMORY_ONLY)
+  //             rdd.custom_persist(StorageLevel.MEMORY_ONLY)
   //             logInfo("Persisted RDD " + rdd.id + " of job " + jobId)
   //           } catch {
   //             case e: Throwable =>

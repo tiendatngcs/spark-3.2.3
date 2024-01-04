@@ -60,6 +60,16 @@ class WindowedDStream[T: ClassTag](
     this
   }
 
+  // Modification starts
+  // override def custom_persist(level: StorageLevel): DStream[T] = {
+  //   // Do not let this windowed DStream be persisted as windowed (union-ed) RDDs share underlying
+  //   // RDDs and persisting the windowed RDDs would store numerous copies of the underlying data.
+  //   // Instead control the persistence of the parent DStream.
+  //   parent.custom_persist(level)
+  //   this
+  // }
+  // Modification ends
+
   override def compute(validTime: Time): Option[RDD[T]] = {
     val currentWindow = new Interval(validTime - windowDuration + parent.slideDuration, validTime)
     val rddsInWindow = parent.slice(currentWindow)

@@ -56,6 +56,14 @@ class GraphImpl[VD: ClassTag, ED: ClassTag] protected (
     this
   }
 
+  // Modification starts
+  // override def custom_persist(newLevel: StorageLevel): Graph[VD, ED] = {
+  //   vertices.custom_persist(newLevel)
+  //   replicatedVertexView.edges.custom_persist(newLevel)
+  //   this
+  // }
+  // Modification ends
+
   override def cache(): Graph[VD, ED] = {
     vertices.cache()
     replicatedVertexView.edges.cache()

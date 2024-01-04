@@ -69,7 +69,7 @@ object SparkPageRankCacheAll {
     var ranks = links.mapValues(v => 1.0).cache()
 
     for (i <- 1 to iters) {
-      val contribs = links.join(ranks).cache().values.flatMap{ case (urls, rank) =>
+      val contribs = links.join(ranks).cache().values.cache().flatMap{ case (urls, rank) =>
         val size = urls.size
         urls.map(url => (url, rank / size))
       }.cache()
@@ -77,7 +77,7 @@ object SparkPageRankCacheAll {
     }
 
     val output = ranks.collect()
-    output.foreach(tup => println(s"${tup._1} has rank:  ${tup._2} ."))
+    // output.foreach(tup => println(s"${tup._1} has rank:  ${tup._2} ."))
 
     spark.stop()
   }

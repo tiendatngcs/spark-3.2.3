@@ -138,6 +138,14 @@ private[spark] class ShuffleMapTask(
     val result = dep.shuffleWriterProcessor.write(rdd, dep, mapId, context, partition)
     val computeTimeMap = getComputeTimeMap(rdd)
     SparkEnv.get.blockManager.memoryStore.updateCostData(partition.index, computeTimeMap)
+    if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 1) {
+      // LRC
+      for (d <- rdd.dependencies) {
+        if (d.rdd != null) {
+          SparkEnv.get.blockManager.memoryStore.decrementReferenceCount(d.rdd.id, partition.index)
+        }
+      }
+    }
     (result, rdd.id)
     // End of Modification
   }

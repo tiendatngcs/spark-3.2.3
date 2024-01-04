@@ -70,6 +70,14 @@ class ReducedWindowedDStream[K: ClassTag, V: ClassTag](
     this
   }
 
+  // Modification starts
+  // override def custom_persist(storageLevel: StorageLevel): DStream[(K, V)] = {
+  //   super.custom_persist(storageLevel)
+  //   reducedStream.custom_persist(storageLevel)
+  //   this
+  // }
+  // Modification ends
+
   override def checkpoint(interval: Duration): DStream[(K, V)] = {
     super.checkpoint(interval)
     // reducedStream.checkpoint(interval)

@@ -211,6 +211,10 @@ class BlockManagerMasterEndpoint(
     case RemoveBroadcast(broadcastId, removeFromDriver) =>
       context.reply(removeBroadcast(broadcastId, removeFromDriver))
 
+    case ReferenceCount(lineage) =>
+      broadcastReferenceData(lineage)
+      context.reply(true)
+
     case RemoveBlock(blockId) =>
       removeBlockFromWorkers(blockId)
       context.reply(true)
@@ -455,6 +459,13 @@ class BlockManagerMasterEndpoint(
       // If the block manager has already exited, nothing to replicate.
       case e: java.util.NoSuchElementException =>
         Seq.empty[ReplicateBlock]
+    }
+  }
+
+  // LRC
+  private def broadcastReferenceData(lineage: mutable.HashMap[Int, mutable.HashSet[Int]]): Unit = {
+    for (blockManager <- blockManagerInfo.values) {
+      blockManager.storageEndpoint.ask[Boolean](ReferenceCount(lineage))
     }
   }
 

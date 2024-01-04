@@ -26,6 +26,11 @@ import org.apache.spark.sql.SparkSession
 object LinearRegressionWithElasticNetExample {
 
   def main(args: Array[String]): Unit = {
+    if (args.length != 3) {
+      println("LinearRegressionWithElasticNetExample <input> <MaxIter> <appName>")
+      System.exit(1)
+    }
+
     val spark = SparkSession
       .builder
       .appName(args(args.length-1))
@@ -33,11 +38,13 @@ object LinearRegressionWithElasticNetExample {
 
     // $example on$
     // Load training data
+    // val training = spark.read.format("libsvm")
+    //   .load("data/mllib/sample_linear_regression_data.txt")
     val training = spark.read.format("libsvm")
-      .load("data/mllib/sample_linear_regression_data.txt")
+      .load(args(0))
 
     val lr = new LinearRegression()
-      .setMaxIter(10)
+      .setMaxIter(args(1).toInt)
       .setRegParam(0.3)
       .setElasticNetParam(0.8)
 

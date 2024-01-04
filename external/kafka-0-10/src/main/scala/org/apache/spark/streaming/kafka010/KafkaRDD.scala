@@ -77,6 +77,14 @@ private[spark] class KafkaRDD[K, V](
     super.persist(newLevel)
   }
 
+  // Modification starts
+  override def custom_persist(newLevel: StorageLevel): this.type = {
+    logError("Kafka ConsumerRecord is not serializable. " +
+      "Use .map to extract fields before calling .custom_persist or .window")
+    super.custom_persist(newLevel)
+  }
+  // Modification ends
+
   override def getPartitions: Array[Partition] = {
     offsetRanges.zipWithIndex.map { case (o, i) =>
         new KafkaRDDPartition(i, o.topic, o.partition, o.fromOffset, o.untilOffset)

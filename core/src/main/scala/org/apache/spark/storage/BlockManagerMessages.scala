@@ -46,6 +46,10 @@ private[spark] object BlockManagerMessages {
       extends ToBlockManagerMasterStorageEndpoint
   // instrument code end
 
+  // LRC
+  case class ReferenceCount(lineage: HashMap[Int, HashSet[Int]])
+    extends ToBlockManagerMasterStorageEndpoint
+
   // Remove a block from the storage endpoints that have it. This can only be used to remove
   // blocks that the master knows about.
   case class RemoveBlock(blockId: BlockId) extends ToBlockManagerMasterStorageEndpoint
