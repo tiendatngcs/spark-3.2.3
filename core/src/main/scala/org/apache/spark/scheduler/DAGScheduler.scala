@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.annotation.tailrec
 import scala.collection.Map
 import scala.collection.mutable
-import scala.collection.mutable.{HashMap, HashSet, ListBuffer}
+import scala.collection.mutable.{HashMap, HashSet, ListBuffer, Queue, Stack}
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
 
@@ -171,6 +171,11 @@ private[spark] class DAGScheduler(
   private[scheduler] var previousResultRddId: Int = -1
   private[scheduler] var numChainedReused: Int = 0
   // End of Modification
+
+  // instrument code
+  private val rddIdToRefCount = new HashMap[Int, Int]
+  private var refCountByJob = new HashMap[Int, Int]
+  // instrument code end
 
   // Stages we need to run whose parents aren't done
   private[scheduler] val waitingStages = new HashSet[Stage]
@@ -1113,6 +1118,139 @@ private[spark] class DAGScheduler(
     )
   }
 
+  // instrument code
+  // The list for stages to visit
+  private val waitingReStages = new Queue[RDD[_]]
+  // Keep track of visited stages, so skip them if encounter again
+  private val visitedStageRDDs = new HashSet[Int]
+  // Expended in memory nodes
+  private val expendedNodes = new HashSet[Int]
+  // Keep track of the dropped one RDDs
+  // private val droppedRDDs = new HashSet[Int]
+
+
+  private def profileRefCountStageByStage(rdd: RDD[_], jobId: Int): Unit = {
+     // logWarning("profiling" + " jobId " + jobId + " rdd: " + rdd.id
+    //  + " " + rdd.getStorageLevel.useMemory)
+    visitedStageRDDs.clear()
+    expendedNodes.clear()
+    refCountByJob = new HashMap[Int, Int]()
+    profileRefCountOneStage(rdd, jobId)
+    while (!waitingReStages.isEmpty) {
+      profileRefCountOneStage(waitingReStages.dequeue(), jobId)
+    }
+   // logWarning("profiling" + " jobId " + jobId + "done" + " rdd: " + rdd.id)
+    val numberOfRDDPartitions = rdd.getNumPartitions
+    blockManagerMaster.broadcastRefCount(jobId, numberOfRDDPartitions, refCountByJob)
+   // logInfo("dag profiling completed")
+    logInfo(refCountByJob.toString())
+    // writeRefCountToFile(jobId, refCountByJob)
+  }
+
+  private def profileRefCountOneStage(rdd: RDD[_], jobId: Int): Unit = {
+    // RDDs pending to visit in the same stage
+    val waitingForVisit = new Stack[RDD[_]]
+    // Last in memory RDD ref count should sub 1
+    var newInMemoryRDDs: mutable.MutableList[Int] = mutable.MutableList()
+    // if the final RDD of this stage is in memory
+    if (rdd.getStorageLevel.useMemory) {
+      newInMemoryRDDs += rdd.id
+    }
+    // Dont start with the same RDD twice
+    if (!visitedStageRDDs.contains(rdd.id)) {
+      visitedStageRDDs += rdd.id
+    } else {
+     // logWarning("visited stage rdd: " + rdd.id + " skip")
+      return
+    }
+    def visit(rdd: RDD[_]): Unit = {
+      // Expending a RDD
+      if (rdd.getStorageLevel.useMemory) {
+        if ((!expendedNodes.contains(rdd.id))
+          && (!newInMemoryRDDs.contains(rdd.id))) {
+          expendedNodes.add(rdd.id)
+          newInMemoryRDDs += rdd.id
+        }
+      }
+      for (dep <- rdd.dependencies) {
+     //   logWarning("processing dependency between rdd: " + rdd.id + " " + dep.rdd.id)
+        dep match {
+          case shufDep: ShuffleDependency[_, _, _] =>
+            if (!expendedNodes.contains(shufDep.rdd.id)) {
+              if (!waitingReStages.contains(shufDep.rdd)) {
+                waitingReStages += shufDep.rdd
+            //    logWarning("shuffllede between " + rdd.id +
+          //        " and " + shufDep.rdd.id + ", to the queue")
+              } else {
+             //   logWarning("shuffllede between " + rdd.id +
+             //     " and " + shufDep.rdd.id + ", duplicated, cancel")
+              }
+            } else {
+           //   logWarning("shuffllede between " + rdd.id +
+            //    " and " + shufDep.rdd.id + " skip")
+            }
+          case narrowDep: NarrowDependency[_] =>
+            if ((!expendedNodes.contains(narrowDep.rdd.id))
+              && (!waitingForVisit.contains(narrowDep.rdd))) {
+              waitingForVisit.push(narrowDep.rdd)
+            }
+            if (rddIdToRefCount.contains(narrowDep.rdd.id)) {
+              val temp = rddIdToRefCount(narrowDep.rdd.id) + 1
+              rddIdToRefCount.put(narrowDep.rdd.id, temp)
+          //    logWarning("RefCount for " + narrowDep.rdd.id + " is " + temp)
+            } else {
+              rddIdToRefCount.put(narrowDep.rdd.id, 1)
+         //     logWarning("RefCount for " + narrowDep.rdd.id + " is 1")
+            }
+            if (refCountByJob.contains(narrowDep.rdd.id)) {
+              val temp = refCountByJob(narrowDep.rdd.id) + 1
+              refCountByJob.put(narrowDep.rdd.id, temp)
+              // logWarning("RefCount for " + narrowDep.rdd.id + " is " + temp)
+            } else {
+              refCountByJob.put(narrowDep.rdd.id, 1)
+              // logWarning("RefCount for " + narrowDep.rdd.id + " is 1")
+            }
+          // expendedNodes.add(rdd)
+        }
+      }
+    }
+    waitingForVisit.push(rdd)
+    if (rddIdToRefCount.contains(rdd.id)) {
+      val temp = rddIdToRefCount(rdd.id) + 1
+      rddIdToRefCount.put(rdd.id, temp)
+    //  logWarning(" RefCount for " + rdd.id + " is " + temp)
+    } else {
+      rddIdToRefCount.put(rdd.id, 1)
+    //  logWarning("RefCount for " + rdd.id + " is 1")
+    }
+    if (refCountByJob.contains(rdd.id)) {
+      val temp = refCountByJob(rdd.id) + 1
+      refCountByJob.put(rdd.id, temp)
+      // logWarning("RefCount for " + narrowDep.rdd.id + " is " + temp)
+    } else {
+      refCountByJob.put(rdd.id, 1)
+      // logWarning("RefCount for " + narrowDep.rdd.id + " is 1")
+    }
+
+    while (waitingForVisit.nonEmpty) {
+      visit(waitingForVisit.pop())
+    }
+    // Drop 1 ref count of the in memory RDD with the biggest id
+    /* if (newInMemoryRDDs.length > 0) {
+      for (can <- newInMemoryRDDs) {
+        logWarning("droping new in stage RDD: " + can)
+        if (refCountByJob.contains(can)) {
+          refCountByJob -= can
+        }
+        if (rddIdToRefCount.contains(can)) {
+          rddIdToRefCount -= can
+        }
+
+      }
+    } */
+  }
+  // instrument code end
+
   /**
    * Registers the given jobId among the jobs that need the given stage and all of that stage's
    * ancestors.
@@ -1324,6 +1462,9 @@ private[spark] class DAGScheduler(
       case scala.util.Success(_) =>
         // Modification: Notify Executors of Job Success
         blockManagerMaster.broadcastJobSuccess(waiter.jobId)
+        // TODO: Add Guard for LPW Only
+        // LPW
+        blockManagerMaster.broadcastJobDone(waiter.jobId)
         // End of Modification
         logInfo(
           "Job %d finished: %s, took %f s".format(
@@ -1852,6 +1993,10 @@ private[spark] class DAGScheduler(
         Utils.cloneProperties(properties)
       )
     )
+    // TODO: Add Guard for LPW Only
+    // instrument code
+    profileRefCountStageByStage(finalRDD, jobId)
+    // instrument code end
     submitStage(finalStage)
   }
 

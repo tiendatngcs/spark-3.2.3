@@ -129,6 +129,24 @@ class BlockManagerMasterEndpoint(
   }
   // End of Modification
 
+  // instrument code
+  def broadcastRef(jobId: Int, partitionCount: Int, refCountByJob: mutable.HashMap[Int, Int])
+    : Unit = {
+    val managers = blockManagerInfo.toList
+    for (manager <- managers) {
+      logInfo("endpoint broadcast ref")
+      manager._2.storageEndpoint.ask[Unit](RefCountBroadcast(jobId, partitionCount, refCountByJob))
+    }
+  }
+
+  def broadcastJobDone(jobId: Int): Unit = {
+    val managers = blockManagerInfo.toList
+    for (manager <- managers) {
+      manager._2.storageEndpoint.ask[Unit](JobFinishedBroadcast(jobId))
+    }
+  }
+  // instrument code end
+
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case RegisterBlockManager(id, localDirs, maxOnHeapMemSize, maxOffHeapMemSize, endpoint) =>
       context.reply(register(id, localDirs, maxOnHeapMemSize, maxOffHeapMemSize, endpoint))
@@ -150,6 +168,16 @@ class BlockManagerMasterEndpoint(
       } else {
         handleResult(updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size))
       }
+
+    // instrument code
+    case RefCountBroadcast(jobId, partitionCount, refCountByJob) =>
+      broadcastRef(jobId, partitionCount, refCountByJob)
+      context.reply(true)
+
+    case JobFinishedBroadcast(jobId) =>
+      broadcastJobDone(jobId)
+      context.reply(null)
+    // instrument code end
 
     // instrument code
     case RefDistanceBroadcast(refDistance) =>

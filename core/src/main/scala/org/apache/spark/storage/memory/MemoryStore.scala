@@ -127,6 +127,108 @@ private[spark] class MemoryStore(
   private val keyToBlockId = new mutable.HashMap[String, BlockId]()
   // instrument code end
 
+  // instrument code
+
+  // private val weights = new mutable.HashMap[String, WholeBlockId]()
+  private val keyToBlockIdLPW = new mutable.HashMap[String, BlockId]()
+  // key = rdd id, value = ref count
+  private var refCount = new mutable.HashMap[Int, Int]()
+
+  private val computationCost = new mutable.HashMap[Tuple2[Int, Int], Long]()
+  // key = [rddId, partitionId]
+  private val pastRefInfo = new mutable.HashMap[Int, mutable.HashMap[Int, Int]]()
+
+  def updateRefLPW(jobId: Int, partitionCount: Int, refCountByJob: mutable.HashMap[Int, Int]): Unit = {
+    refCount.synchronized {
+      refCount = refCountByJob.clone()
+    }
+  }
+
+  def updateCost(partitionId: Int, map: mutable.HashMap[Int, Long]): Unit = {
+    val iterator = map.iterator
+    val curTime = System.currentTimeMillis()
+    for (item <- iterator) {
+      computationCost.synchronized {
+        if (!computationCost.contains((item._1, partitionId))) {
+          computationCost.put((item._1, partitionId), item._2)
+        }
+      }
+      calculateWeight(partitionId, item._1)
+    }
+  }
+
+  def calculateWeight(partitionId: Int, rddid: Int): Unit = {
+    // I decided to update weight here instead of doing so in another function
+    val blockId = keyToBlockIdLPW.get(rddid.toString + "_" + partitionId.toString)
+    blockId match {
+      case None =>
+
+      case Some(x) =>
+        val size = getSize(x).toDouble
+        val cost = computationCost.synchronized {
+          computationCost.get((rddid, partitionId)) match {
+            case Some(x) =>
+              x.toDouble
+            case None =>
+              0.0
+          }
+        }
+        val ref: Double = refCount.synchronized {
+          refCount.get(rddid) match {
+            case Some(x) =>
+              x.toDouble
+            case None =>
+              0.0
+          }
+        }
+        val pastmod = pastRefInfo.synchronized {
+          var pastCount = 0
+          for (item <- pastRefInfo) {
+            if (item._2.contains(rddid)) {
+              pastCount += 1
+            }
+          }
+          if (pastRefInfo.size == 0) {
+            1.toDouble
+          }
+          else {
+            1.toDouble + (pastCount.toDouble / pastRefInfo.size.toDouble)
+          }
+        }
+        val inMem = entries.synchronized {
+          entries.get(x).memoryMode match {
+            case MemoryMode.ON_HEAP =>
+              1.toDouble
+            case _ =>
+              0.toDouble
+          }
+        }
+        val weight = (inMem * cost * ref * pastmod) / size
+        x.updateWeight(weight)
+        keyToBlockIdLPW.update(rddid.toString + "_" + partitionId.toString, x)
+    }
+  }
+
+  def putOrUpdateBlockLPW(id: String, partition: BlockId): Unit = {
+    keyToBlockIdLPW.synchronized {
+      if (id.split("_")(0) != "rdd") {
+        return
+      }
+
+      if (entries.get(partition).memoryMode != MemoryMode.ON_HEAP) {
+        partition.updateWeight(0)
+      }
+      keyToBlockIdLPW.put(id.split("_")(1) + "_" + id.split("_")(2), partition)
+    }
+  }
+
+  def decreaseRefCount(jobId: Int): Unit = {
+    pastRefInfo.synchronized {
+      pastRefInfo.put(jobId, refCount)
+    }
+  }
+  // instrument code end
+
   // Modification: added Reference Count and BlockId refcount
   private val referenceCount = new mutable.HashMap[Int, Int]()
   private val blockIdToRC = new mutable.HashMap[BlockId, Int]()
@@ -433,7 +535,11 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         if (replacementPolicy == 1) {
           // LRC
           updateAndAddBlockId(blockId)
+        } else if (replacementPolicy == 2) {
+          // LPW
+          putOrUpdateBlockLPW(blockId.name, blockId)
         }
+
         // instrument code end
       }
       // Modification: Add Block to name map, for ease of updating
@@ -578,6 +684,9 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
           if (replacementPolicy == 1) {
             // LRC
             updateAndAddBlockId(blockId)
+          } else if (replacementPolicy == 2) {
+            // LPW
+            putOrUpdateBlockLPW(blockId.name, blockId)
           }
         }
         // Modification: Add Block to name map, for ease of updating
@@ -771,6 +880,12 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
         // LRC
         val _ = blockIdToRC.synchronized {
           blockIdToRC.remove(blockId)
+        }
+      } else if (replacementPolicy == 2) {
+        if (blockId.name.split("_")(0) == "rdd") {
+          keyToBlockIdLPW.synchronized {
+            keyToBlockIdLPW.remove(blockId.name.split("_")(1) + "_" + blockId.name.split("_")(2))
+          }
         }
       }
       // Modification: Remove block from name map
