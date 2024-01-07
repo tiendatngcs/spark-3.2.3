@@ -20,6 +20,7 @@ package org.apache.spark.storage
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.Iterable
 // Modification: Added Data Structure
+import scala.collection.mutable
 import scala.collection.mutable.{HashMap, HashSet}
 // End of Modification
 import scala.concurrent.Future
@@ -170,6 +171,19 @@ class BlockManagerMaster(
   // LRC
   def broadcastReferenceData(lineage: HashMap[Int, HashSet[Int]]): Unit = {
     driverEndpoint.askSync[Boolean](ReferenceCount(lineage))
+  }
+  // instrument code end
+
+  // LPW
+  // instrument code
+  def broadcastRefCount(jobId: Int, partitionCount: Int, refCountByJob: mutable.HashMap[Int, Int])
+    : Unit = {
+    logInfo("ref count brodcasted")
+    driverEndpoint.askSync[Boolean](RefCountBroadcast(jobId, partitionCount, refCountByJob))
+  }
+
+  def broadcastJobDone(jobId: Int): Unit = {
+    driverEndpoint.askSync[Unit](JobFinishedBroadcast(jobId))
   }
   // instrument code end
 

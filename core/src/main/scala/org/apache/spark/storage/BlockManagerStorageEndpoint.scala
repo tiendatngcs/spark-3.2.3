@@ -68,6 +68,15 @@ class BlockManagerStorageEndpoint(
       }
 
     // instrument code
+    case RefCountBroadcast(jobId, partitionCount, refCountByJob) =>
+      logInfo("ref broadcast received")
+      blockManager.memoryStore.updateRefLPW(jobId, partitionCount, refCountByJob)
+
+    case JobFinishedBroadcast(jobId) =>
+      blockManager.memoryStore.decreaseRefCount(jobId)
+    // instrument code end
+
+    // instrument code
     case RefDistanceBroadcast(refDistance) =>
       blockManager.memoryStore.updateRef(refDistance)
     // instrument code end

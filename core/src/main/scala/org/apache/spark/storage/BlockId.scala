@@ -42,6 +42,13 @@ sealed abstract class BlockId {
   def setWeight(value: Double): Unit = {
     weight = value
   }
+  // LPW
+  def updateWeight(newWeight: Double): Unit = {
+    weight = newWeight
+  }
+  def getweight(): Double = {
+    return weight
+  }
   // End of Modification
 
   // convenience methods

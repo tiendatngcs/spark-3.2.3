@@ -20,6 +20,7 @@ package org.apache.spark.storage
 import java.io.{Externalizable, ObjectInput, ObjectOutput}
 
 // Modification: Added HashMap Data Structure
+import scala.collection.mutable
 import scala.collection.mutable.{HashMap, HashSet}
 
 import org.apache.spark.rpc.RpcEndpointRef
@@ -49,6 +50,14 @@ private[spark] object BlockManagerMessages {
   // LRC
   case class ReferenceCount(lineage: HashMap[Int, HashSet[Int]])
     extends ToBlockManagerMasterStorageEndpoint
+
+  //LPW
+  // instrument code
+  case class RefCountBroadcast(jobId: Int, partitionCount: Int,
+    refCountByJob: mutable.HashMap[Int, Int]) extends ToBlockManagerMasterStorageEndpoint
+
+  case class JobFinishedBroadcast(jobId: Int) extends ToBlockManagerMasterStorageEndpoint
+  // instrument code end
 
   // Remove a block from the storage endpoints that have it. This can only be used to remove
   // blocks that the master knows about.
