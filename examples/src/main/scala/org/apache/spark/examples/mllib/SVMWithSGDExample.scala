@@ -50,6 +50,7 @@ object SVMWithSGDExample {
     // val numIterations = 100
     val numIterations = args(1).toInt
     val model = SVMWithSGD.train(training, numIterations)
+    // val model = SVMWithSGD.train(data, numIterations)
 
     // Clear the default threshold.
     model.clearThreshold()

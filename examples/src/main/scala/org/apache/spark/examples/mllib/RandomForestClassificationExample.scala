@@ -40,8 +40,8 @@ object RandomForestClassificationExample {
     // val data = MLUtils.loadLibSVMFile(sc, "data/mllib/sample_libsvm_data.txt")
     val data = MLUtils.loadLibSVMFile(sc, args(0))
     // Split the data into training and test sets (30% held out for testing)
-    val splits = data.randomSplit(Array(0.7, 0.3))
-    val (trainingData, testData) = (splits(0), splits(1))
+    // val splits = data.randomSplit(Array(0.7, 0.3))
+    // val (trainingData, testData) = (splits(0), splits(1))
 
     // Train a RandomForest model.
     // Empty categoricalFeaturesInfo indicates all features are continuous.
@@ -61,7 +61,9 @@ object RandomForestClassificationExample {
     val maxDepth = args(3).toInt
     val maxBins = args(4).toInt
 
-    val model = RandomForest.trainClassifier(trainingData, numClasses, categoricalFeaturesInfo,
+    // val model = RandomForest.trainClassifier(trainingData, numClasses, categoricalFeaturesInfo,
+    //   numTrees, featureSubsetStrategy, impurity, maxDepth, maxBins)
+    val model = RandomForest.trainClassifier(data, numClasses, categoricalFeaturesInfo,
       numTrees, featureSubsetStrategy, impurity, maxDepth, maxBins)
 
     // Evaluate model on test instances and compute test error

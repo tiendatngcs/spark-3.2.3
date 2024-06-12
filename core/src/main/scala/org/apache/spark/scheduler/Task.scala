@@ -85,9 +85,9 @@ private[spark] abstract class Task[T](
       metricsSystem: MetricsSystem,
       resources: Map[String, ResourceInformation],
       // Modification: Change Function signature to accomodate RDD_id
-      plugins: Option[PluginContainer]): (T, Int) = {
+      // plugins: Option[PluginContainer]): (T, Int) = {
       // End of Modification
-      // plugins: Option[PluginContainer]): T = {
+      plugins: Option[PluginContainer]): T = {
     SparkEnv.get.blockManager.registerTask(taskAttemptId)
     // TODO SPARK-24874 Allow create BarrierTaskContext based on partitions, instead of whether
     // the stage is barrier.
@@ -180,9 +180,9 @@ private[spark] abstract class Task[T](
   }
 
   // Modification: Change Function signature to accomodate RDD_id
-  def runTask(context: TaskContext): (T, Int)
+  // def runTask(context: TaskContext): (T, Int)
   // End of Modification
-  // def runTask(context: TaskContext): T
+  def runTask(context: TaskContext): T
 
   def preferredLocations: Seq[TaskLocation] = Nil
 

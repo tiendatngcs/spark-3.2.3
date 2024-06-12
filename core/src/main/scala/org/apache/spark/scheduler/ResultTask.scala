@@ -160,7 +160,8 @@ private[spark] class ResultTask[T, U](
   // instrument code end
 
   // Modification: Change function signature to accomodate RDD_id, Added Computation time data
-  override def runTask(context: TaskContext): (U, Int) = {
+  // override def runTask(context: TaskContext): (U, Int) = {
+  override def runTask(context: TaskContext): U = {
   // End of Modification
     // Deserialize the RDD and the func using the broadcast variables.
     val threadMXBean = ManagementFactory.getThreadMXBean
@@ -179,23 +180,27 @@ private[spark] class ResultTask[T, U](
     // func(context, rdd.iterator(partition, context))
     // Modification: Returns RDD_id, also added time measurement to send to the memorystore
     val result = func(context, rdd.iterator(partition, context))
-    val computeTimeMap = getComputeTimeMap(rdd)
-    SparkEnv.get.blockManager.memoryStore.updateCostData(partition.index, computeTimeMap)
-    if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 1) {
-      // LRC
-      for (d <- rdd.dependencies) {
-        if (d.rdd != null) {
-          SparkEnv.get.blockManager.memoryStore.decrementReferenceCount(d.rdd.id, partition.index)
-        }
-      }
-    }
+    // val computeTimeMap = getComputeTimeMap(rdd)
+    // SparkEnv.get.blockManager.memoryStore.updateCostData(partition.index, computeTimeMap)
+    // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 1) {
+    //   // LRC
+    //   for (d <- rdd.dependencies) {
+    //     if (d.rdd != null) {
+    //       SparkEnv
+    //       .get.blockManager.memoryStore.decrementReferenceCount(d.rdd.id, partition.index)
+    //     }
+    //   }
+    // }
 
     // TODO: Add Guard for LPW only
-    // LPW
-    val map = calculateTrueTime(rdd)
-    SparkEnv.get.blockManager.memoryStore.updateCost(partition.index, map)
+    // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 2) {
+    //   // LPW
+    //   val map = calculateTrueTime(rdd)
+    //   SparkEnv.get.blockManager.memoryStore.updateCost(partition.index, map)
+    // }
 
-    (result, rdd.id)
+    // (result, rdd.id)
+    result
     // End of Modification
   }
 

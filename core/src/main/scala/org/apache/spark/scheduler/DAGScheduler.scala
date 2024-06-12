@@ -167,6 +167,9 @@ private[spark] class DAGScheduler(
   private[scheduler] val rddToPastOccurrence = new HashMap[Int, Int]
 
   private[scheduler] val rddIdCachedPriorToProcessed: HashSet[Int] = HashSet.empty
+  private[scheduler] val appearanceHistory: Queue[HashSet[Int]] = Queue()
+
+  private[scheduler] var accumulatedProcessTime: Long = 0L
 
   private[scheduler] var previousResultRddId: Int = -1
   private[scheduler] var numChainedReused: Int = 0
@@ -792,7 +795,7 @@ private[spark] class DAGScheduler(
 
   // Modification: RDD Preprocessing and caching
   private def preprocessRDD(rdd: RDD[_], jobId: Int): Unit = {
-    logInfo("Preprocessing new Job rdd")
+    // logInfo("Preprocessing new Job rdd")
     val startTime = System.nanoTime
     // We are manually maintaining a stack here to prevent StackOverflowError
     // caused by recursively visiting
@@ -835,10 +838,10 @@ private[spark] class DAGScheduler(
     while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.remove(0))
     }
-    logInfo(
-      "preprocessRDD DAG traversal for RDD %d took %f seconds"
-        .format(rdd.id, (System.nanoTime - traversal_start) / 1e9)
-    )
+    // logInfo(
+    //   "preprocessRDD DAG traversal for RDD %d took %f seconds"
+    //     .format(rdd.id, (System.nanoTime - traversal_start) / 1e9)
+    // )
 
     // then we cache all rdds in rddIdCachedPriorToProcessed
     // rddIdCachedPriorToProcessed.foreach {
@@ -848,6 +851,10 @@ private[spark] class DAGScheduler(
     //       case None => None
     //     }
     // }
+    logInfo(
+      "Number of visited rdds: %d"
+        .format(visitedRddId.length)
+    )
 
     allRddIdToChildrenId.synchronized {
       for (parent_relation <- rddIdToChildrenId) {
@@ -859,11 +866,11 @@ private[spark] class DAGScheduler(
       }
     }
 
-    allRddIdToChildrenId.synchronized {
-      allRddIdToChildrenId.foreach { case (rdd, children) =>
-        logInfo(s"RDD $rdd has children $children")
-      }
-    }
+    // allRddIdToChildrenId.synchronized {
+    //   allRddIdToChildrenId.foreach { case (rdd, children) =>
+    //     logInfo(s"RDD $rdd has children $children")
+    //   }
+    // }
 
     // Take all RDDs which have a pastRef larger than one and cache it,
     // Only caches the ones in the current job
@@ -880,20 +887,19 @@ private[spark] class DAGScheduler(
           .size >= sc.conf.get(config.MIN_CHILDREN_THRESHOLD)
       }
     }
-
-    logInfo(
-      "preprocessRDD for RDD %d took %f seconds"
-        .format(rdd.id, (System.nanoTime - startTime) / 1e9)
-    )
-    logInfo("Current Job RDDs (ID) to be Cached: " + cachedRDDs.keys.toString())
+    // logInfo(
+    //   "preprocessRDD for RDD %d took %f seconds"
+    //     .format(rdd.id, (System.nanoTime - startTime) / 1e9)
+    // )
+    // logInfo("Current Job RDDs (ID) to be Cached: " + cachedRDDs.keys.toString())
 
     // Cache RDDs
     cachedRDDs.foreach { case (_, rddToCache) =>
       if (rddToCache.getStorageLevel == StorageLevel.NONE) {
-        logInfo(s"Caching new rdd ${rddToCache.id}")
+        // logInfo(s"Caching new rdd ${rddToCache.id}")
         rddToCache.custom_persist(StorageLevel.MEMORY_ONLY)
       } else {
-        logInfo(s"rdd ${rddToCache.id} already exist in cache or other storage levels")
+        // logInfo(s"rdd ${rddToCache.id} already exist in cache or other storage levels")
       }
     }
 
@@ -920,105 +926,179 @@ private[spark] class DAGScheduler(
     //     case None => false // Key not found
     //   }
     // }
-    var highRefRddId: List[Int] = List.empty[Int]
+    // var highRefRddId: List[Int] = List.empty[Int]
+    var highRefRddId: HashSet[Int] = HashSet()
+
+    // adding current RDDs to queue
+    assert(appearanceHistory.length <= sc.conf.get(config.HISTORY_WINDOW))
+    val visitedRddIdSet: HashSet[Int] = HashSet() ++ visitedRddId.toSet
+    appearanceHistory.enqueue(visitedRddIdSet)
+    if (appearanceHistory.length > sc.conf.get(config.HISTORY_WINDOW)) {
+      appearanceHistory.dequeue
+    }
+    assert(appearanceHistory.length <= sc.conf.get(config.HISTORY_WINDOW))
 
     if (jobId > 0) {
       // process ref appear in more that half of previous jobs
       val rddPastAppearanceRate: HashMap[Int, Float] =
         HashMap(rddToPastOccurrence.mapValues(_.toFloat / (jobId + 1).toFloat).toSeq: _*)
-      logInfo(s"rddPastAppearanceRate ${rddPastAppearanceRate}")
+      // logInfo(s"rddPastAppearanceRate ${rddPastAppearanceRate}")
       // /(jobId+1).toFloat)
-      var changed = true
-      while (changed) {
-        changed = false
-        visitedRddId.foreach { case (rddId) =>
-          rddIdToRdd.get(rddId) match {
-            case Some(rdd) =>
-              if (
-                rdd.getStorageLevel == StorageLevel.NONE
-                // && !hasAllChildrenCached(rddId)
-                && rddPastAppearanceRate
-                  .getOrElse(rdd.id, 0.0f) > sc.conf
-                  .get(config.PAST_APPEARANCE_RATE_THRESHOLD)
-                  .toFloat
-              ) {
-                logInfo(s"Caching new rdd due to high past ref rate ${rdd.id}")
-                highRefRddId = highRefRddId :+ rdd.id
-                rdd.custom_persist(StorageLevel.MEMORY_ONLY)
-                changed = true
-              }
-            case None => None
+      // var changed = true
+      // while (changed) {
+      //   changed = false
+      //   visitedRddId.foreach { case (rddId) =>
+      //     rddIdToRdd.get(rddId) match {
+      //       case Some(rdd) =>
+      //         if (
+      //           rdd.getStorageLevel == StorageLevel.NONE
+      //           // && !hasAllChildrenCached(rddId)
+      //           && rddPastAppearanceRate
+      //             .getOrElse(rdd.id, 0.0f) > sc.conf
+      //             .get(config.PAST_APPEARANCE_RATE_THRESHOLD)
+      //             .toFloat
+      //         ) {
+      //           // logInfo(s"Caching new rdd due to high past ref rate ${rdd.id}")
+      //           highRefRddId = highRefRddId :+ rdd.id
+      //           rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+      //           changed = true
+      //         }
+      //       case None => None
+      //     }
+      //   }
+      //   // logInfo("Looping back: watch out for inf loop")
+      // }
+
+      allRddIdToChildrenId.keySet.foreach { rddId =>
+        {
+          val occurenceCount: Int = appearanceHistory.count(set => set.exists(_ == rddId))
+          if (occurenceCount == 0) {
+            rddIdToRdd.get(rddId) match {
+              case Some(rdd) =>
+                if (rdd.getStorageLevel == StorageLevel.MEMORY_ONLY) {
+                  rdd.custom_unpersist()
+                } else if (
+                  rdd.getStorageLevel == StorageLevel.MEMORY_ONLY && visitedRddId.contains(rddId)
+                ) {}
+              case None => None
+            }
           }
         }
-        logInfo("Looping back: watch out for inf loop")
       }
-
-      var toBeRevisited = HashSet(visitedRddId: _*)
-      var revisited: List[Int] = List.empty[Int]
-      var notAllChildrenAreCachedList: List[Int] = List.empty[Int]
-
-      def revisit(rddId: Int): Unit = {
-        toBeRevisited -= rddId
-        revisited = revisited :+ rddId
-        rddIdToChildrenId.get(rddId) match {
-          case Some(hashSet) =>
-            hashSet.foreach { childrenRddId =>
-              if (toBeRevisited.contains(childrenRddId)) {
-                revisit(childrenRddId)
-              }
+      // cache those that has more occurence count than threshold
+      // add them to a list of to be cached
+      val interJobCached = new ListBuffer[RDD[_]]
+      visitedRddId.foreach { rddId =>
+        {
+          val occurenceCount: Int = appearanceHistory.count(set => set.exists(_ == rddId))
+          if (occurenceCount >= sc.conf.get(config.PAST_APPEARANCE_COUNT_THRESHOLD)) {
+            // cache it
+            rddIdToRdd.get(rddId) match {
+              case Some(rdd) =>
+                if (rdd.getStorageLevel == StorageLevel.NONE) {
+                  highRefRddId.add(rddId)
+                  rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+                  interJobCached.prepend(rdd)
+                }
+              case None => None
             }
-          case (None) =>
-            notAllChildrenAreCachedList = notAllChildrenAreCachedList :+ rddId
-            return
-          // we are at the leaf
-        }
-
-        var allChildrenAreCached = true
-        rddIdToChildrenId.get(rddId) match {
-          case Some(hashSet) =>
-            hashSet.foreach { childrenRddId =>
-              rddIdToRdd.get(childrenRddId) match {
-                case Some(childrenRdd) =>
-                  assert(revisited.contains(childrenRddId))
-                  // condition change when this children is not cached
-                  // and not all of its children is cached
-                  if (
-                    childrenRdd.getStorageLevel != StorageLevel.MEMORY_ONLY
-                    && notAllChildrenAreCachedList.contains(childrenRddId)
-                  ) {
-                    allChildrenAreCached = false
-                  }
-                case None => assert(false) // should not reach here
-              }
-              if (toBeRevisited.contains(childrenRddId)) {}
-            }
-          case (None) => assert(false) // we never reach here
-          // we are at the leaf
-        }
-        if (!allChildrenAreCached) {
-          notAllChildrenAreCachedList = notAllChildrenAreCachedList :+ rddId
+          }
         }
       }
 
-      while (!toBeRevisited.isEmpty) {
-        val min_element = toBeRevisited.toSeq.min
-        revisit(min_element)
-      }
-      logInfo(s"notAllChildrenAreCachedList ${notAllChildrenAreCachedList}")
-      visitedRddId.sortBy(-_).foreach { case (rddId) =>
-        rddIdToRdd.get(rddId) match {
-          case Some(rdd) =>
-            if (
-              !notAllChildrenAreCachedList.contains(rddId)
-              && rdd.getStorageLevel == StorageLevel.MEMORY_ONLY
-              && highRefRddId.contains(rddId)
-              && !cachedRDDs.contains(rddId)
-            ) {
-              rdd.unpersist()
+      // var toBeRevisited = HashSet(visitedRddId: _*)
+      val waitingForReVisit = new ListBuffer[RDD[_]]
+      waitingForReVisit += rdd
+      var revisitedRddId: List[Int] = List.empty[Int]
+      // var notAllChildrenAreCachedList: List[Int] = List.empty[Int]
+
+      // def revisit(rddId: Int): Unit = {
+      //   toBeRevisited -= rddId
+      //   revisited = revisited :+ rddId
+      //   rddIdToChildrenId.get(rddId) match {
+      //     case Some(hashSet) =>
+      //       hashSet.foreach { childrenRddId =>
+      //         if (toBeRevisited.contains(childrenRddId)) {
+      //           revisit(childrenRddId)
+      //         }
+      //       }
+      //     case (None) =>
+      //       notAllChildrenAreCachedList = notAllChildrenAreCachedList :+ rddId
+      //       return
+      //     // we are at the leaf
+      //   }
+
+      //   var allChildrenAreCached = true
+      //   rddIdToChildrenId.get(rddId) match {
+      //     case Some(hashSet) =>
+      //       hashSet.foreach { childrenRddId =>
+      //         rddIdToRdd.get(childrenRddId) match {
+      //           case Some(childrenRdd) =>
+      //             assert(revisited.contains(childrenRddId))
+      //             // condition change when this children is not cached
+      //             // and not all of its children is cached
+      //             if (
+      //               childrenRdd.getStorageLevel != StorageLevel.MEMORY_ONLY
+      //               && notAllChildrenAreCachedList.contains(childrenRddId)
+      //             ) {
+      //               allChildrenAreCached = false
+      //             }
+      //           case None => assert(false) // should not reach here
+      //         }
+      //         if (toBeRevisited.contains(childrenRddId)) {}
+      //       }
+      //     case (None) => assert(false) // we never reach here
+      //     // we are at the leaf
+      //   }
+      //   if (!allChildrenAreCached) {
+      //     notAllChildrenAreCachedList = notAllChildrenAreCachedList :+ rddId
+      //   }
+      // }
+
+      // while (!toBeRevisited.isEmpty) {
+      //   val min_element = toBeRevisited.toSeq.min
+      //   revisit(min_element)
+      // }
+
+      def revisit(rdd: RDD[_]): Unit = {
+        // we are doing depth first search
+        if (!revisitedRddId.contains(rdd.id)) {
+          // revisited is omega
+          revisitedRddId = revisitedRddId :+ rdd.id
+          if (rdd.getStorageLevel != StorageLevel.MEMORY_ONLY) {
+            // if rdd is not cached, we keep visiting the lineage until we visit a cached one
+            for (dep <- rdd.dependencies) {
+              revisit(dep.rdd)
             }
-          case None => None
+          }
         }
       }
+
+      revisit(rdd)
+
+      // at last, we unpersist those that we cached (inter-job) but not revisited
+      interJobCached.foreach { rdd =>
+        if (!revisitedRddId.contains(rdd.id)) {
+          assert(rdd.getStorageLevel == StorageLevel.MEMORY_ONLY)
+          rdd.custom_unpersist()
+        }
+      }
+
+      // logInfo(s"notAllChildrenAreCachedList ${notAllChildrenAreCachedList}")
+      // visitedRddId.sortBy(-_).foreach { case (rddId) =>
+      //   rddIdToRdd.get(rddId) match {
+      //     case Some(rdd) =>
+      //       if (
+      //         !notAllChildrenAreCachedList.contains(rddId)
+      //         && rdd.getStorageLevel == StorageLevel.MEMORY_ONLY
+      //         && highRefRddId.contains(rddId)
+      //         && !cachedRDDs.contains(rddId)
+      //       ) {
+      //         rdd.custom_unpersist()
+      //       }
+      //     case None => None
+      //   }
+      // }
       // we store the rdds that are cached
       // visitedRddId.sortBy(-_).foreach { case (rddId) =>
       //   rddIdToRdd.get(rddId) match {
@@ -1038,19 +1118,27 @@ private[spark] class DAGScheduler(
     if (resultRddIsReused) {
       numChainedReused = numChainedReused + 1
     }
-    logInfo(s"numChainedReused = ${numChainedReused} jobId = ${jobId}")
-    logInfo(s"Chain reuse rate ${numChainedReused / (jobId + 1)}")
-    logInfo(s"CHAINED_REUSE_RATE_THRESHOLD = ${sc.conf.get(config.CHAINED_REUSE_RATE_THRESHOLD)}")
+    // logInfo(s"numChainedReused = ${numChainedReused} jobId = ${jobId}")
+    // logInfo(s"Chain reuse rate ${numChainedReused / (jobId + 1)}")
+    // logInfo(s"CHAINED_REUSE_RATE_THRESHOLD
+    // = ${sc.conf.get(config.CHAINED_REUSE_RATE_THRESHOLD)}")
     if (
       sc.conf.get(config.CACHE_RESULT_RDD)
       && numChainedReused.toDouble / (jobId + 1) > sc.conf.get(config.CHAINED_REUSE_RATE_THRESHOLD)
     ) {
-      logInfo(s"Caching RDD ${rdd.id} due to highChained Reuse rate")
+      // logInfo(s"Caching RDD ${rdd.id} due to highChained Reuse rate")
       rdd.custom_persist(StorageLevel.MEMORY_ONLY)
     }
-    logInfo(s"Setting previousResultRddId to ${previousResultRddId}")
+    // logInfo(s"Setting previousResultRddId to ${previousResultRddId}")
     previousResultRddId = rdd.id
     blockManagerMaster.broadcastReferenceData(jobId, rddIdToChildrenId)
+
+    val currentProcessingTime = System.nanoTime() - startTime
+    accumulatedProcessTime = accumulatedProcessTime + currentProcessingTime
+    logInfo(
+      "Current job | accumulated preprocessing time: %d | %d"
+      .format(currentProcessingTime, accumulatedProcessTime)
+    )
   }
 
   private def CacheAllRDDs(rdd: RDD[_], jobId: Int): Unit = {
@@ -1128,9 +1216,8 @@ private[spark] class DAGScheduler(
   // Keep track of the dropped one RDDs
   // private val droppedRDDs = new HashSet[Int]
 
-
   private def profileRefCountStageByStage(rdd: RDD[_], jobId: Int): Unit = {
-     // logWarning("profiling" + " jobId " + jobId + " rdd: " + rdd.id
+    // logWarning("profiling" + " jobId " + jobId + " rdd: " + rdd.id
     //  + " " + rdd.getStorageLevel.useMemory)
     visitedStageRDDs.clear()
     expendedNodes.clear()
@@ -1139,10 +1226,10 @@ private[spark] class DAGScheduler(
     while (!waitingReStages.isEmpty) {
       profileRefCountOneStage(waitingReStages.dequeue(), jobId)
     }
-   // logWarning("profiling" + " jobId " + jobId + "done" + " rdd: " + rdd.id)
+    // logWarning("profiling" + " jobId " + jobId + "done" + " rdd: " + rdd.id)
     val numberOfRDDPartitions = rdd.getNumPartitions
     blockManagerMaster.broadcastRefCount(jobId, numberOfRDDPartitions, refCountByJob)
-   // logInfo("dag profiling completed")
+    // logInfo("dag profiling completed")
     logInfo(refCountByJob.toString())
     // writeRefCountToFile(jobId, refCountByJob)
   }
@@ -1160,47 +1247,51 @@ private[spark] class DAGScheduler(
     if (!visitedStageRDDs.contains(rdd.id)) {
       visitedStageRDDs += rdd.id
     } else {
-     // logWarning("visited stage rdd: " + rdd.id + " skip")
+      // logWarning("visited stage rdd: " + rdd.id + " skip")
       return
     }
     def visit(rdd: RDD[_]): Unit = {
       // Expending a RDD
       if (rdd.getStorageLevel.useMemory) {
-        if ((!expendedNodes.contains(rdd.id))
-          && (!newInMemoryRDDs.contains(rdd.id))) {
+        if (
+          (!expendedNodes.contains(rdd.id))
+          && (!newInMemoryRDDs.contains(rdd.id))
+        ) {
           expendedNodes.add(rdd.id)
           newInMemoryRDDs += rdd.id
         }
       }
       for (dep <- rdd.dependencies) {
-     //   logWarning("processing dependency between rdd: " + rdd.id + " " + dep.rdd.id)
+        //   logWarning("processing dependency between rdd: " + rdd.id + " " + dep.rdd.id)
         dep match {
           case shufDep: ShuffleDependency[_, _, _] =>
             if (!expendedNodes.contains(shufDep.rdd.id)) {
               if (!waitingReStages.contains(shufDep.rdd)) {
                 waitingReStages += shufDep.rdd
-            //    logWarning("shuffllede between " + rdd.id +
-          //        " and " + shufDep.rdd.id + ", to the queue")
+                //    logWarning("shuffllede between " + rdd.id +
+                //        " and " + shufDep.rdd.id + ", to the queue")
               } else {
-             //   logWarning("shuffllede between " + rdd.id +
-             //     " and " + shufDep.rdd.id + ", duplicated, cancel")
+                //   logWarning("shuffllede between " + rdd.id +
+                //     " and " + shufDep.rdd.id + ", duplicated, cancel")
               }
             } else {
-           //   logWarning("shuffllede between " + rdd.id +
-            //    " and " + shufDep.rdd.id + " skip")
+              //   logWarning("shuffllede between " + rdd.id +
+              //    " and " + shufDep.rdd.id + " skip")
             }
           case narrowDep: NarrowDependency[_] =>
-            if ((!expendedNodes.contains(narrowDep.rdd.id))
-              && (!waitingForVisit.contains(narrowDep.rdd))) {
+            if (
+              (!expendedNodes.contains(narrowDep.rdd.id))
+              && (!waitingForVisit.contains(narrowDep.rdd))
+            ) {
               waitingForVisit.push(narrowDep.rdd)
             }
             if (rddIdToRefCount.contains(narrowDep.rdd.id)) {
               val temp = rddIdToRefCount(narrowDep.rdd.id) + 1
               rddIdToRefCount.put(narrowDep.rdd.id, temp)
-          //    logWarning("RefCount for " + narrowDep.rdd.id + " is " + temp)
+              //    logWarning("RefCount for " + narrowDep.rdd.id + " is " + temp)
             } else {
               rddIdToRefCount.put(narrowDep.rdd.id, 1)
-         //     logWarning("RefCount for " + narrowDep.rdd.id + " is 1")
+              //     logWarning("RefCount for " + narrowDep.rdd.id + " is 1")
             }
             if (refCountByJob.contains(narrowDep.rdd.id)) {
               val temp = refCountByJob(narrowDep.rdd.id) + 1
@@ -1218,10 +1309,10 @@ private[spark] class DAGScheduler(
     if (rddIdToRefCount.contains(rdd.id)) {
       val temp = rddIdToRefCount(rdd.id) + 1
       rddIdToRefCount.put(rdd.id, temp)
-    //  logWarning(" RefCount for " + rdd.id + " is " + temp)
+      //  logWarning(" RefCount for " + rdd.id + " is " + temp)
     } else {
       rddIdToRefCount.put(rdd.id, 1)
-    //  logWarning("RefCount for " + rdd.id + " is 1")
+      //  logWarning("RefCount for " + rdd.id + " is 1")
     }
     if (refCountByJob.contains(rdd.id)) {
       val temp = refCountByJob(rdd.id) + 1
@@ -1386,13 +1477,13 @@ private[spark] class DAGScheduler(
       eagerlyComputePartitionsForRddAndAncestors(rdd)
       // Modification: RDD preprocessing call
       preprocessRDD(rdd, jobId)
-      logInfo("Submitting new job path 1")
+      // logInfo("Submitting new job path 1")
       // End of Modification
     } else {
-      logInfo("Submitting new job path 2a")
+      // logInfo("Submitting new job path 2a")
       eagerlyComputePartitionsForRddAndAncestors(rdd)
       if (sc.conf.get(config.VANILLA_W_CUSTOM_COMPUTATION)) {
-        logInfo("Submitting new job path 2b")
+        // logInfo("Submitting new job path 2b")
         preprocessRDD(rdd, jobId)
       }
     }
@@ -1463,8 +1554,10 @@ private[spark] class DAGScheduler(
         // Modification: Notify Executors of Job Success
         blockManagerMaster.broadcastJobSuccess(waiter.jobId)
         // TODO: Add Guard for LPW Only
-        // LPW
-        blockManagerMaster.broadcastJobDone(waiter.jobId)
+        // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 2) {
+        //   // LPW
+        //   blockManagerMaster.broadcastJobDone(waiter.jobId)
+        // }
         // End of Modification
         logInfo(
           "Job %d finished: %s, took %f s".format(
@@ -1995,7 +2088,10 @@ private[spark] class DAGScheduler(
     )
     // TODO: Add Guard for LPW Only
     // instrument code
-    profileRefCountStageByStage(finalRDD, jobId)
+    // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 2) {
+    //   // LPW
+    //   profileRefCountStageByStage(finalRDD, jobId)
+    // }
     // instrument code end
     submitStage(finalStage)
   }

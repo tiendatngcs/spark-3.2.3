@@ -512,9 +512,9 @@ private[spark] class Executor(
         val value = Utils.tryWithSafeFinally {
           // Modification: Passed RDD.id back since getting it is too roundabout
           //               (2 stage deserialization)
-          val (res, rdd_id) = task.run(
+          // val (res, rdd_id) = task.run(
           // Original:
-          // val res = task.run(
+          val res = task.run(
           // End of Modification
             taskAttemptId = taskId,
             attemptNumber = taskDescription.attemptNumber,
@@ -523,7 +523,7 @@ private[spark] class Executor(
             plugins = plugins)
           threwException = false
           // Modification: Increment counter of hashmap and mark as recomputed if more than 1
-          rddSignature = s"${rdd_id}_${task.partitionId}"
+          // rddSignature = s"${rdd_id}_${task.partitionId}"
           // rddSignatureToComputationCount(rddSignature) += 1
           // if (rddSignatureToComputationCount(rddSignature) > 1) {
           //   recomputed = true
@@ -672,9 +672,9 @@ private[spark] class Executor(
         plugins.foreach(_.onTaskSucceeded())
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
         // Modification: Send RPC to the Scheduler, its since its easier to parse in driver log
-        if (recomputed) {
+        // if (recomputed) {
           // execBackend.recomputeAlert(rddSignature, task.metrics.executorCpuTime)
-        }
+        // }
         // logInfo(s"RDD ${rddSignature} is accessed in ${task.metrics.executorCpuTime}ns")
         // End of Modification
       } catch {

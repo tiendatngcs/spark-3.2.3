@@ -138,7 +138,11 @@ private[spark] class MemoryStore(
   // key = [rddId, partitionId]
   private val pastRefInfo = new mutable.HashMap[Int, mutable.HashMap[Int, Int]]()
 
-  def updateRefLPW(jobId: Int, partitionCount: Int, refCountByJob: mutable.HashMap[Int, Int]): Unit = {
+  def updateRefLPW(
+    jobId: Int,
+    partitionCount: Int,
+    refCountByJob: mutable.HashMap[Int, Int]
+  ): Unit = {
     refCount.synchronized {
       refCount = refCountByJob.clone()
     }
@@ -529,9 +533,9 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       entries.synchronized {
         entries.put(blockId, entry)
         // instrument code
-        if (cacheMode == 3) {
-          putOrUpdateBlock(blockId.name, blockId)
-        }
+        // if (cacheMode == 3) {
+        //   putOrUpdateBlock(blockId.name, blockId)
+        // }
         if (replacementPolicy == 1) {
           // LRC
           updateAndAddBlockId(blockId)
@@ -539,7 +543,6 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
           // LPW
           putOrUpdateBlockLPW(blockId.name, blockId)
         }
-
         // instrument code end
       }
       // Modification: Add Block to name map, for ease of updating
@@ -897,16 +900,16 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       // }
       // End of Modification
       // instrument code
-      if (cacheMode == 3) {
-        assert(false)
-        if (blockId.name.split("_")(0) == "rdd") {
-          keyToBlockId.synchronized {
-            keyToBlockId.remove(
-              blockId.name.split("_")(1) + "_" + blockId.name.split("_")(2)
-            )
-          }
-        }
-      }
+      // if (cacheMode == 3) {
+      //   assert(false)
+      //   if (blockId.name.split("_")(0) == "rdd") {
+      //     keyToBlockId.synchronized {
+      //       keyToBlockId.remove(
+      //         blockId.name.split("_")(1) + "_" + blockId.name.split("_")(2)
+      //       )
+      //     }
+      //   }
+      // }
       // instrument code end
       true
     } else {
@@ -919,9 +922,9 @@ def updateCostData(partition: Int, costMap: mutable.HashMap[Int, Long]): Unit = 
       entries.values.asScala.foreach(freeMemoryEntry)
       entries.clear()
       // instrument code
-      if (cacheMode == 3) {
-        keyToBlockId.clear()
-      }
+      // if (cacheMode == 3) {
+      //   keyToBlockId.clear()
+      // }
       // instrument code end
     }
     onHeapUnrollMemoryMap.clear()

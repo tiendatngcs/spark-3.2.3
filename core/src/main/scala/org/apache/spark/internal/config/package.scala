@@ -419,12 +419,26 @@ package object config {
     .intConf
     .createWithDefault(2)
 
-  private[spark] val PAST_APPEARANCE_RATE_THRESHOLD =
-    ConfigBuilder("spark.memory.pastAppearanceRateThreshold")
-    .doc("Min rate of occurance in the past for an rdd to be cached")
+  // private[spark] val PAST_APPEARANCE_RATE_THRESHOLD =
+  //   ConfigBuilder("spark.memory.pastAppearanceRateThreshold")
+  //   .doc("Min rate of occurance in the past for an rdd to be cached")
+  //   .version("Dat version")
+  //   .doubleConf
+  //   .createWithDefault(0.5)
+
+  private[spark] val PAST_APPEARANCE_COUNT_THRESHOLD =
+    ConfigBuilder("spark.memory.pastAppearanceCountThreshold")
+    .doc("Min num of occurance in the past lastest W jobs for an rdd to be cached")
     .version("Dat version")
-    .doubleConf
-    .createWithDefault(0.5)
+    .intConf
+    .createWithDefault(2)
+
+  private[spark] val HISTORY_WINDOW =
+    ConfigBuilder("spark.memory.historyWindow")
+    .doc("Record of the past lastest W jobs")
+    .version("Dat version")
+    .intConf
+    .createWithDefault(5)
 
   private[spark] val CACHE_RESULT_RDD =
     ConfigBuilder("spark.memory.cacheResultRDD")

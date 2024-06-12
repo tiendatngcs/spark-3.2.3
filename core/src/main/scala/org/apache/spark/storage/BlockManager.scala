@@ -1234,13 +1234,13 @@ private[spark] class BlockManager(
   def get[T: ClassTag](blockId: BlockId): Option[BlockResult] = {
     val local = getLocalValues(blockId)
     if (local.isDefined) {
-      logInfo(s"Found block $blockId locally")
+      // logInfo(s"Found block $blockId locally")
       if (blockId.isRDD) localHitCount += 1
       return local
     }
     val remote = getRemoteValues[T](blockId)
     if (remote.isDefined) {
-      logInfo(s"Found block $blockId remotely")
+      // logInfo(s"Found block $blockId remotely")
       if (blockId.isRDD) remoteHitCount += 1
       return remote
     }
@@ -1427,9 +1427,9 @@ private[spark] class BlockManager(
       if (res.isEmpty) {
         // the block was successfully stored
         if (level == StorageLevel.MEMORY_ONLY) {
-          logInfo(s"Successfully store block $blockId to memory")
+          // logInfo(s"Successfully store block $blockId to memory")
         } else if (level == StorageLevel.MEMORY_AND_DISK || level == StorageLevel.MEMORY_ONLY_SER) {
-          logInfo(s"Store block $blockId but not to MEMORY_ONLY")
+          // logInfo(s"Store block $blockId but not to MEMORY_ONLY")
         }
         if (keepReadLock) {
           blockInfoManager.downgradeLock(blockId)
@@ -1698,7 +1698,7 @@ private[spark] class BlockManager(
       existingReplicas: Set[BlockManagerId],
       maxReplicas: Int,
       maxReplicationFailures: Option[Int] = None): Boolean = {
-    logInfo(s"Using $blockManagerId to pro-actively replicate $blockId")
+    // logInfo(s"Using $blockManagerId to pro-actively replicate $blockId")
     blockInfoManager.lockForReading(blockId).forall { info =>
       val data = doGetLocalBytes(blockId, info)
       val storageLevel = StorageLevel(
@@ -1852,14 +1852,14 @@ private[spark] class BlockManager(
   private[storage] override def dropFromMemory[T: ClassTag](
       blockId: BlockId,
       data: () => Either[Array[T], ChunkedByteBuffer]): StorageLevel = {
-    logInfo(s"Dropping block $blockId from memory")
+    // logInfo(s"Dropping block $blockId from memory")
     val info = blockInfoManager.assertBlockIsLockedForWriting(blockId)
     var blockIsUpdated = false
     val level = info.level
 
     // Drop to disk, if storage level requires
     if (level.useDisk && !diskStore.contains(blockId)) {
-      logInfo(s"Writing block $blockId to disk")
+      // logInfo(s"Writing block $blockId to disk")
       data() match {
         case Left(elements) =>
           diskStore.put(blockId) { channel =>
@@ -1902,7 +1902,7 @@ private[spark] class BlockManager(
    */
   def removeRdd(rddId: Int): Int = {
     // TODO: Avoid a linear scan by creating another mapping of RDD.id to blocks.
-    logInfo(s"Removing RDD $rddId")
+    // logInfo(s"Removing RDD $rddId")
     val blocksToRemove = blockInfoManager.entries.flatMap(_._1.asRDDId).filter(_.rddId == rddId)
     blocksToRemove.foreach { blockId => removeBlock(blockId, tellMaster = false) }
     blocksToRemove.size
@@ -1913,7 +1913,7 @@ private[spark] class BlockManager(
   private[spark] def decommissionSelf(): Unit = synchronized {
     decommissioner match {
       case None =>
-        logInfo("Starting block manager decommissioning process...")
+        // logInfo("Starting block manager decommissioning process...")
         decommissioner = Some(new BlockManagerDecommissioner(conf, this))
         decommissioner.foreach(_.start())
       case Some(_) =>

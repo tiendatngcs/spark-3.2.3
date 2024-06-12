@@ -41,7 +41,6 @@ private[spark] object BlockManagerMessages {
   case class JobSuccess(jobId: Int)
     extends ToBlockManagerMasterStorageEndpoint
   // End of Modification
-
   // instrument code
   case class RefDistanceBroadcast(refDistance: HashMap[Int, Seq[Int]])
       extends ToBlockManagerMasterStorageEndpoint
@@ -51,13 +50,12 @@ private[spark] object BlockManagerMessages {
   case class ReferenceCount(lineage: HashMap[Int, HashSet[Int]])
     extends ToBlockManagerMasterStorageEndpoint
 
-  //LPW
-  // instrument code
-  case class RefCountBroadcast(jobId: Int, partitionCount: Int,
-    refCountByJob: mutable.HashMap[Int, Int]) extends ToBlockManagerMasterStorageEndpoint
+  case class RefCountBroadcast(
+    jobId: Int, partitionCount: Int,
+    refCountByJob: mutable.HashMap[Int, Int])
+    extends ToBlockManagerMasterStorageEndpoint
 
   case class JobFinishedBroadcast(jobId: Int) extends ToBlockManagerMasterStorageEndpoint
-  // instrument code end
 
   // Remove a block from the storage endpoints that have it. This can only be used to remove
   // blocks that the master knows about.

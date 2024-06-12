@@ -184,6 +184,9 @@ abstract class RDD[T: ClassTag](
    */
   private def persist(newLevel: StorageLevel, allowOverride: Boolean): this.type = {
     // TODO: Handle changes of StorageLevel
+    if (conf.get(CACHE_MODE) == 2 && storageLevel != StorageLevel.NONE) {
+      return this
+    }
     if (storageLevel != StorageLevel.NONE
         && newLevel != storageLevel
         && !allowOverride) {
@@ -236,6 +239,10 @@ abstract class RDD[T: ClassTag](
 
   def custom_persist(newLevel: StorageLevel): this.type = {
     // is meant to be called by our custom caching scheme
+    if (conf.get(VANILLA_W_CUSTOM_COMPUTATION) == true) {
+      assert(conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))
+      return this
+    }
     if (isLocallyCheckpointed) {
       // This means the user previously called localCheckpoint(), which should have already
       // marked this RDD for persisting. Here we should override the old storage level with
@@ -278,6 +285,23 @@ abstract class RDD[T: ClassTag](
    * @return This RDD.
    */
   def unpersist(blocking: Boolean = false): this.type = {
+    if (conf.get(CACHE_MODE) == 2) {
+      // cacheAll mode
+      return this
+    }
+    logInfo(s"Removing RDD $id from persistence list")
+    sc.unpersistRDD(id, blocking)
+    storageLevel = StorageLevel.NONE
+    this
+  }
+
+  /**
+   * Mark the RDD as non-persistent, and remove all blocks for it from memory and disk.
+   *
+   * @param blocking Whether to block until all blocks are deleted (default: false)
+   * @return This RDD.
+   */
+  def custom_unpersist(blocking: Boolean = false): this.type = {
     logInfo(s"Removing RDD $id from persistence list")
     sc.unpersistRDD(id, blocking)
     storageLevel = StorageLevel.NONE

@@ -162,7 +162,8 @@ private[spark] class ShuffleMapTask(
   // instrument code end
 
   // Modification: Change function signature to accomodate RDD_id, Added Computation time data
-  override def runTask(context: TaskContext): (MapStatus, Int) = {
+  // override def runTask(context: TaskContext): (MapStatus, Int) = {
+  override def runTask(context: TaskContext): MapStatus = {
   // End of Modification
     // Deserialize the RDD using the broadcast variable.
     val threadMXBean = ManagementFactory.getThreadMXBean
@@ -188,23 +189,27 @@ private[spark] class ShuffleMapTask(
     // dep.shuffleWriterProcessor.write(rdd, dep, mapId, context, partition)
     // Modification: Returns RDD_id, also added time measurement to send to the memorystore
     val result = dep.shuffleWriterProcessor.write(rdd, dep, mapId, context, partition)
-    val computeTimeMap = getComputeTimeMap(rdd)
-    SparkEnv.get.blockManager.memoryStore.updateCostData(partition.index, computeTimeMap)
-    if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 1) {
-      // LRC
-      for (d <- rdd.dependencies) {
-        if (d.rdd != null) {
-          SparkEnv.get.blockManager.memoryStore.decrementReferenceCount(d.rdd.id, partition.index)
-        }
-      }
-    }
+    // val computeTimeMap = getComputeTimeMap(rdd)
+    // SparkEnv.get.blockManager.memoryStore.updateCostData(partition.index, computeTimeMap)
+    // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 1) {
+    //   // LRC
+    //   for (d <- rdd.dependencies) {
+    //     if (d.rdd != null) {
+    //       SparkEnv
+    //       .get.blockManager.memoryStore.decrementReferenceCount(d.rdd.id, partition.index)
+    //     }
+    //   }
+    // }
 
     // TODO: Add Guard for LPW only
-    // LPW
-    val map = calculateTrueTime(rdd)
-    SparkEnv.get.blockManager.memoryStore.updateCost(partition.index, map)
+    // if (SparkEnv.get.blockManager.memoryStore.replacementPolicy == 2) {
+    //   // LPW
+    //   val map = calculateTrueTime(rdd)
+    //   SparkEnv.get.blockManager.memoryStore.updateCost(partition.index, map)
+    // }
 
-    (result, rdd.id)
+    // (result, rdd.id)
+    result
     // End of Modification
   }
 
