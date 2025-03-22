@@ -224,7 +224,8 @@ abstract class RDD[T: ClassTag](
   def persist(newLevel: StorageLevel): this.type = {
     if (newLevel == StorageLevel.MEMORY_ONLY
       && (conf.get(CACHE_MODE) == 1
-        || (conf.get(CACHE_MODE) == 4 && conf.get(DISABLE_CACHING_APIS)))) {
+        || (conf.get(CACHE_MODE) == 4 && conf.get(DISABLE_CACHING_APIS))
+        || (conf.get(CACHE_MODE) == 5 && conf.get(DISABLE_CACHING_APIS)))) {
         return this
       }
     if (isLocallyCheckpointed) {
@@ -240,7 +241,9 @@ abstract class RDD[T: ClassTag](
   def custom_persist(newLevel: StorageLevel): this.type = {
     // is meant to be called by our custom caching scheme
     if (conf.get(VANILLA_W_CUSTOM_COMPUTATION) == true) {
-      assert(conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))
+      assert(
+        (conf.get(CACHE_MODE) == 4 && !conf.get(DISABLE_CACHING_APIS))
+        || (conf.get(CACHE_MODE) == 5 && !conf.get(DISABLE_CACHING_APIS)))
       return this
     }
     if (isLocallyCheckpointed) {

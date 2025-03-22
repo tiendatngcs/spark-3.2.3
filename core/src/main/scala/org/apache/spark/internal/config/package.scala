@@ -369,7 +369,8 @@ package object config {
       "| 1 : no cache " +
       "| 2 : cache all " +
       "| 3 : custom implementation " +
-      "| 4 : newer custom implementation")
+      "| 4 : newer custom implementation" +
+      "| 5 : ReSpark")
     .version("Dat version")
     .intConf
     .createWithDefault(0)

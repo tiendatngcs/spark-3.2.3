@@ -166,6 +166,11 @@ private[spark] class DAGScheduler(
   }
   private[scheduler] val rddToPastOccurrence = new HashMap[Int, Int]
 
+  // used exclusively by ReSpark
+  private[scheduler] var rddToDependentCount = new HashMap[Int, Int]
+  private[scheduler] var rddUsedLastJob = List.empty[Int]
+  private[scheduler] val globalRddIdToRdd = new HashMap[Int, RDD[_]]
+
   private[scheduler] val rddIdCachedPriorToProcessed: HashSet[Int] = HashSet.empty
   private[scheduler] val appearanceHistory: Queue[HashSet[Int]] = Queue()
 
@@ -793,6 +798,135 @@ private[spark] class DAGScheduler(
     missing.toList
   }
 
+  private def respark_preprocessRDD(rdd: RDD[_], jobId: Int): Unit = {
+
+    if (!rddUsedLastJob.isEmpty) {
+      for (rddUsed <- rddUsedLastJob) {
+        allRddIdToChildrenId.synchronized {
+          for (parent_relation <- allRddIdToChildrenId) {
+            // Adds the current parent's children hashset to the past children hashset
+            if (parent_relation._2.contains(rddUsed)) {
+              assert(
+                rddToDependentCount.contains(parent_relation._1),
+                s"RDDid $parent_relation._1 does not exist in the map"
+              )
+              rddToDependentCount(parent_relation._1) =
+                0.max(rddToDependentCount(parent_relation._1)-1)
+            }
+          }
+        }
+      }
+    }
+
+    // unpersist before persisting again
+
+    for (rdd_dependentCount <- rddToDependentCount) {
+      if (rdd_dependentCount._2 < 2) {
+        globalRddIdToRdd.get(rdd_dependentCount._1) match {
+          case Some(rdd) =>
+            if (rdd.getStorageLevel == StorageLevel.MEMORY_ONLY) {
+              rdd.custom_unpersist()
+              logInfo("Unpersisted RDD %d".format(rdd.id))
+            }
+          case None => assert(false, "Must have an element")
+        }
+      }
+    }
+
+    // we persist things again
+
+    val waitingForVisit = new ListBuffer[RDD[_]]
+    waitingForVisit += rdd
+    // Map the RDD IDs to the RDDs, this is so that RDD references are cleaned
+    // at the end of the function, but we can keep a complete lineage map by ID.
+    val rddIdToRdd = new HashMap[Int, RDD[_]]
+    val rddIdToChildrenId = new HashMap[Int, HashSet[Int]]
+    var visitedRddId: List[Int] = List.empty[Int]
+    // visit each node, if it has 2+ dependents then cache it
+    def visit(rdd: RDD[_]): Unit = {
+      if (!visitedRddId.contains(rdd.id)) {
+        visitedRddId = visitedRddId :+ rdd.id
+        // Add current RDD to Mapping
+        rddIdToRdd.update(rdd.id, rdd)
+        globalRddIdToRdd.update(rdd.id, rdd)
+        for (dep <- rdd.dependencies) {
+          // Insert child into parent's children hashset
+          // The size of the hashset is the reference count,
+          // as a parent cannot have 2 of the same children.
+          // Thus, this will visit all the dependency RDDs
+          // and add them only once to the parent
+          rddIdToChildrenId.getOrElseUpdate(dep.rdd.id, new HashSet[Int]()) += rdd.id
+          waitingForVisit.prepend(dep.rdd)
+        }
+      }
+    }
+
+    while (waitingForVisit.nonEmpty) {
+      visit(waitingForVisit.remove(0))
+    }
+
+    logInfo(
+      "Number of visited rdds: %d"
+        .format(visitedRddId.length)
+    )
+
+    visitedRddId.foreach {
+      rddId => {
+        val occurenceCount: Int = appearanceHistory.count(set => set.exists(_ == rddId))
+        if (occurenceCount >= sc.conf.get(config.PAST_APPEARANCE_COUNT_THRESHOLD)) {
+          // cache it
+          rddIdToRdd.get(rddId) match {
+            case Some(rdd) =>
+              if (rdd.getStorageLevel == StorageLevel.NONE) {
+                rdd.custom_persist(StorageLevel.MEMORY_ONLY)
+              }
+            case None => None
+          }
+        }
+      }
+    }
+
+    allRddIdToChildrenId.synchronized {
+      for (parent_relation <- rddIdToChildrenId) {
+        // Adds the current parent's children hashset to the past children hashset
+        allRddIdToChildrenId.getOrElseUpdate(
+          parent_relation._1,
+          new HashSet[Int]()
+        ) ++= parent_relation._2
+      }
+    }
+
+
+    val cachedRDDs = allRddIdToChildrenId.synchronized {
+      rddIdToRdd.filter { case (id, _) =>
+        allRddIdToChildrenId
+          .getOrElseUpdate(
+            id,
+            new HashSet[Int]()
+          )
+          .size >= sc.conf.get(config.MIN_CHILDREN_THRESHOLD)
+      }
+    }
+
+    // Cache RDDs
+    cachedRDDs.foreach { case (_, rddToCache) =>
+      if (rddToCache.getStorageLevel == StorageLevel.NONE) {
+        // logInfo(s"Caching new rdd ${rddToCache.id}")
+        rddToCache.custom_persist(StorageLevel.MEMORY_ONLY)
+      } else {
+        // logInfo(s"rdd ${rddToCache.id} already exist in cache or other storage levels")
+      }
+    }
+
+    // Preparing for the next job processing
+    // convert allRddIdToChildrenId to rddToDependentCount
+    rddToDependentCount = allRddIdToChildrenId.map {
+      case (key, list) => key -> list.size
+    }
+
+    rddUsedLastJob = visitedRddId
+  }
+
   // Modification: RDD Preprocessing and caching
   private def preprocessRDD(rdd: RDD[_], jobId: Int): Unit = {
     // logInfo("Preprocessing new Job rdd")
@@ -834,7 +968,7 @@ private[spark] class DAGScheduler(
     }
 
     // while visiting, if an rdd is cached, we add it to the rddIdCachedPriorToProcessed set
-    val traversal_start = System.nanoTime
+    // val traversal_start = System.nanoTime
     while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.remove(0))
     }
@@ -1479,6 +1613,9 @@ private[spark] class DAGScheduler(
       preprocessRDD(rdd, jobId)
       // logInfo("Submitting new job path 1")
       // End of Modification
+    } else if (sc.conf.get(config.CACHE_MODE) == 5) {
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      respark_preprocessRDD(rdd, jobId)
     } else {
       // logInfo("Submitting new job path 2a")
       eagerlyComputePartitionsForRddAndAncestors(rdd)
@@ -1619,9 +1756,29 @@ private[spark] class DAGScheduler(
     // SPARK-23626: `RDD.getPartitions()` can be slow, so we eagerly compute
     // `.partitions` on every RDD in the DAG to ensure that `getPartitions()`
     // is evaluated outside of the DAGScheduler's single-threaded event loop:
-    eagerlyComputePartitionsForRddAndAncestors(rdd)
-    // Modification: Call Preprocessing
-    preprocessRDD(rdd, jobId)
+    // eagerlyComputePartitionsForRddAndAncestors(rdd)
+    // // Modification: Call Preprocessing
+    // preprocessRDD(rdd, jobId)
+    if (
+      (sc.conf.get(config.CACHE_MODE) == 4 && sc.conf.get(config.AUTO_RDD_CACHING)) ||
+      sc.conf.get(config.CACHE_MODE) == 3
+    ) {
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      // Modification: RDD preprocessing call
+      preprocessRDD(rdd, jobId)
+      // logInfo("Submitting new job path 1")
+      // End of Modification
+    } else if (sc.conf.get(config.CACHE_MODE) == 5) {
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      respark_preprocessRDD(rdd, jobId)
+    } else {
+      // logInfo("Submitting new job path 2a")
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      if (sc.conf.get(config.VANILLA_W_CUSTOM_COMPUTATION)) {
+        // logInfo("Submitting new job path 2b")
+        preprocessRDD(rdd, jobId)
+      }
+    }
     val listener = new ApproximateActionListener(rdd, func, evaluator, timeout)
     val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
     eventProcessLoop.post(
@@ -1670,9 +1827,29 @@ private[spark] class DAGScheduler(
     // SPARK-23626: `RDD.getPartitions()` can be slow, so we eagerly compute
     // `.partitions` on every RDD in the DAG to ensure that `getPartitions()`
     // is evaluated outside of the DAGScheduler's single-threaded event loop:
-    eagerlyComputePartitionsForRddAndAncestors(rdd)
-    // Modification: Call preprocessing
-    preprocessRDD(rdd, jobId)
+    // eagerlyComputePartitionsForRddAndAncestors(rdd)
+    // // Modification: Call preprocessing
+    // preprocessRDD(rdd, jobId)
+    if (
+      (sc.conf.get(config.CACHE_MODE) == 4 && sc.conf.get(config.AUTO_RDD_CACHING)) ||
+      sc.conf.get(config.CACHE_MODE) == 3
+    ) {
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      // Modification: RDD preprocessing call
+      preprocessRDD(rdd, jobId)
+      // logInfo("Submitting new job path 1")
+      // End of Modification
+    } else if (sc.conf.get(config.CACHE_MODE) == 5) {
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      respark_preprocessRDD(rdd, jobId)
+    } else {
+      // logInfo("Submitting new job path 2a")
+      eagerlyComputePartitionsForRddAndAncestors(rdd)
+      if (sc.conf.get(config.VANILLA_W_CUSTOM_COMPUTATION)) {
+        // logInfo("Submitting new job path 2b")
+        preprocessRDD(rdd, jobId)
+      }
+    }
 
     // We create a JobWaiter with only one "task", which will be marked as complete when the whole
     // map stage has completed, and will be passed the MapOutputStatistics for that stage.
